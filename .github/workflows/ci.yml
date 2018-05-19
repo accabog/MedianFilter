@@ -1,0 +1,174 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GCC — C standards
+          - { os: ubuntu-latest, compiler: gcc, lang: c, std: c99 }
+          - { os: ubuntu-latest, compiler: gcc, lang: c, std: c11 }
+          # GCC — C++ standards
+          - { os: ubuntu-latest, compiler: gcc, lang: cpp, std: c++11 }
+          - { os: ubuntu-latest, compiler: gcc, lang: cpp, std: c++14 }
+          - { os: ubuntu-latest, compiler: gcc, lang: cpp, std: c++17 }
+          # Clang — C standards
+          - { os: ubuntu-latest, compiler: clang, lang: c, std: c99 }
+          - { os: ubuntu-latest, compiler: clang, lang: c, std: c11 }
+          # Clang — C++ standards
+          - { os: ubuntu-latest, compiler: clang, lang: cpp, std: c++11 }
+          - { os: ubuntu-latest, compiler: clang, lang: cpp, std: c++14 }
+          - { os: ubuntu-latest, compiler: clang, lang: cpp, std: c++17 }
+          # MSVC
+          - { os: windows-latest, compiler: msvc, lang: c, std: default }
+          - { os: windows-latest, compiler: msvc, lang: cpp, std: default }
+
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.compiler }} / ${{ matrix.std }} / ${{ matrix.lang }}
+
+    env:
+      COMPILER: ${{ matrix.compiler }}
+      LANG: ${{ matrix.lang }}
+      STD: ${{ matrix.std }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and test (GCC/Clang)
+        if: matrix.compiler != 'msvc'
+        run: |
+          if [ "$COMPILER" = "gcc" ]; then
+            CC=gcc; CXX=g++
+          else
+            CC=clang; CXX=clang++
+          fi
+
+          FLAGS="-Wall -Wextra -Wpedantic -Werror -O2 -I. -std=$STD"
+
+          if [ "$LANG" = "c" ]; then
+            $CC $FLAGS -o stress_test tests/stress_test.c MedianFilter.c
+            $CC $FLAGS -o circular_test tests/circular_test.c MedianFilter.c
+            ./stress_test
+            ./circular_test
+          else
+            $CXX $FLAGS -o test_cpp tests/test_cpp.cpp
+            ./test_cpp
+          fi
+
+      - name: Build and test (MSVC)
+        if: matrix.compiler == 'msvc'
+        shell: cmd
+        run: |
+          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          if "%LANG%" == "c" (
+            cl /W4 /WX /O2 /I. /Fe:stress_test.exe tests\stress_test.c MedianFilter.c
+            cl /W4 /WX /O2 /I. /Fe:circular_test.exe tests\circular_test.c MedianFilter.c
+            stress_test.exe
+            circular_test.exe
+          ) else (
+            cl /W4 /WX /O2 /EHsc /I. /Fe:test_cpp.exe tests\test_cpp.cpp
+            test_cpp.exe
+          )
+
+  sanitizers:
+    needs: build-and-test
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    runs-on: ubuntu-latest
+    name: sanitizers / ${{ matrix.compiler }}
+
+    env:
+      COMPILER: ${{ matrix.compiler }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and test with ASan + UBSan
+        run: |
+          if [ "$COMPILER" = "gcc" ]; then
+            CC=gcc; CXX=g++
+          else
+            CC=clang; CXX=clang++
+          fi
+
+          SAN_FLAGS="-Wall -Wextra -Werror -O1 -g -I. -fsanitize=address,undefined -fno-omit-frame-pointer"
+
+          $CC  $SAN_FLAGS -std=c11   -o stress_test   tests/stress_test.c MedianFilter.c
+          $CC  $SAN_FLAGS -std=c11   -o circular_test tests/circular_test.c MedianFilter.c
+          $CXX $SAN_FLAGS -std=c++17 -o test_cpp      tests/test_cpp.cpp
+
+          ./stress_test
+          ./circular_test
+          ./test_cpp
+
+  cppcheck:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    name: cppcheck
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: sudo apt-get update && sudo apt-get install -y cppcheck
+
+      - name: Run cppcheck
+        run: >
+          cppcheck
+          --enable=all
+          --suppress=missingIncludeSystem
+          --suppress=unusedFunction
+          --error-exitcode=1
+          --inline-suppr
+          MedianFilter.c MedianFilter.h MedianFilter.hpp
+
+  sonarcloud:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    name: SonarCloud
+
+    env:
+      BUILD_WRAPPER_OUT_DIR: bw-output
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install build-wrapper
+        uses: SonarSource/sonarqube-scan-action/install-build-wrapper@v6
+
+      - name: Build with build-wrapper
+        run: |
+          CFLAGS="--coverage -Wall -Wextra -O0 -I. -std=c11"
+          build-wrapper-linux-x86-64 --out-dir $BUILD_WRAPPER_OUT_DIR \
+            gcc $CFLAGS -c MedianFilter.c -o MedianFilter.o
+          gcc $CFLAGS -c tests/stress_test.c -o stress_test.o
+          gcc $CFLAGS -o stress_test stress_test.o MedianFilter.o
+          gcc $CFLAGS -c tests/circular_test.c -o circular_test.o
+          gcc $CFLAGS -o circular_test circular_test.o MedianFilter.o
+
+      - name: Run tests for coverage
+        run: |
+          ./stress_test
+          ./circular_test
+
+      - name: Generate coverage report
+        run: gcov MedianFilter.gcda
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.cfamily.compile-commands=${{ env.BUILD_WRAPPER_OUT_DIR }}/compile_commands.json
+            -Dsonar.cfamily.gcov.reportsPath=.

@@ -1,0 +1,25 @@
+# Build artifacts
+*.o
+*.obj
+*.exe
+*.out
+build/
+
+# Test binaries (built from tests/)
+stress_test
+circular_test
+test_cpp
+
+# Coverage
+*.gcno
+*.gcda
+*.gcov
+
+# SonarCloud
+bw-output/
+.scannerwork/
+
+# Editors
+.vscode/
+*.swp
+*~
