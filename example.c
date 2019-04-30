@@ -1,4 +1,4 @@
-#include "median.h"
+#include "MedianFilter.h"
 
 #include <stdlib.h>
 #include <unistd.h>
