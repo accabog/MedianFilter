@@ -5,7 +5,7 @@
  *      Author: alexandru.bogdan
  */
 
-#include "median.h"
+#include "MedianFilter.h"
 
 int MEDIANFILTER_Init(sMedianFilter_t *medianFilter)
 {
