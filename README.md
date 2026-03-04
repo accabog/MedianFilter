@@ -19,7 +19,7 @@ Removes impulse noise (salt-and-pepper spikes) from analog signals in real time 
 - **C API** — caller-allocated buffers, two functions, done
 - **C++ header-only template** — type-safe, compile-time `static_assert` on window size and type
 - **No dependencies** — only `<stdint.h>` (C) or `<type_traits>` / `<cstdint>` (C++)
-- **32 bytes per sample** — constant, predictable RAM footprint (64-bit platform)
+- **24 bytes per sample** — constant, predictable RAM footprint (64-bit); 12 bytes on 32-bit ARM
 
 ## Quick Start
 
@@ -82,20 +82,21 @@ Build and run all desktop demos:
 
 ## How It Works
 
-Each sample lives in a node with three link chains:
+Each sample lives in a node with two link chains:
 
 ```
-Age chain:     oldest ──> ... ──> newest ──╮   (circular, singly-linked)
-               ╰────────────────────────────╯
+Age order:     buffer[0] → [1] → ... → [N-1] → [0]   (implicit, round-robin)
 
-Value chain:   smallest <══> ... <══> largest    (doubly-linked, sorted)
+Value chain:   smallest <══> ... <══> largest          (doubly-linked, sorted)
 
-Median ptr:         ──────────> M              (always the middle node)
+Median ptr:         ──────────> M                      (always the middle node)
 ```
+
+Age order is implicit — nodes are recycled in buffer order via pointer arithmetic, so no explicit age pointer is stored. This saves one pointer per node (25% RAM reduction).
 
 On every insert:
 
-1. **Evict** the oldest node (age-chain head) and unlink it from the value chain
+1. **Evict** the oldest node (age head, advanced by `ptr + 1` with wraparound) and unlink it from the value chain
 2. **Search** from the median pointer — up or down depending on the new sample's value
 3. **Insert** the recycled node at the correct sorted position
 4. **Adjust** the median pointer by one step if needed
@@ -120,7 +121,7 @@ Throughput in **MSamples/s** (`gcc -O2`, x86-64, [Google Benchmark](benchmarks/)
 
 At small windows (3–11), insertion-sort ring is competitive thanks to cache locality on tiny arrays. At window 31+, our linked-list approach pulls ahead decisively — O(n/2) search from the median pointer beats O(n) full-array insertion sort.
 
-RAM = `window_size * 32 + 40` bytes (64-bit). On 32-bit ARM, nodes are 16 bytes — halving the footprint. See [`benchmarks/`](benchmarks/) for full results and methodology.
+RAM = `window_size * 24 + 40` bytes (64-bit). On 32-bit ARM, nodes are 12 bytes each. See [`benchmarks/`](benchmarks/) for full results and methodology.
 
 ## API Reference
 
@@ -132,6 +133,8 @@ RAM = `window_size * 32 + 40` bytes (64-bit). On 32-bit ARM, nodes are 16 bytes 
 | **Insert** | `int MEDIANFILTER_Insert(sMedianFilter_t *restrict filter, int sample)` | Current median value |
 
 The caller must allocate `sMedianFilter_t` and a `sMedianNode_t[N]` buffer, set `numNodes = N` and `medianBuffer = buffer`, then call Init. Window size must be **odd** and **> 1**.
+
+**Inline variant:** For tight-loop callers (e.g. processing an ADC buffer), define `MEDIANFILTER_INLINE_API` before including the header to get a `static inline` Insert that eliminates function-call overhead.
 
 ### C++
 
