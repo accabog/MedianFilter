@@ -57,7 +57,7 @@ target_include_directories(median_filter_c PUBLIC
 )
 
 # ── Benchmark executable ─────────────────────────────────────
-add_executable(bench_median_filters bench_median_filters.cpp)
+add_executable(bench_median_filters bench_median_filters.cpp noninline_wrapper.c)
 target_include_directories(bench_median_filters PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/..
