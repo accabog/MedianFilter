@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/schema/library.json",
+  "name": "MedianFilter",
+  "version": "1.0.0",
+  "description": "Heap-free, O(n) sliding-window median filter for embedded C/C++. Removes spike/impulse noise from analog signals with no dynamic memory allocation.",
+  "keywords": [
+    "median", "filter", "dsp", "signal processing", "noise reduction",
+    "sliding window", "embedded", "bare-metal", "real-time", "analog"
+  ],
+  "homepage": "https://github.com/accabog/MedianFilter",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/accabog/MedianFilter.git"
+  },
+  "authors": {
+    "name": "Alexandru Bogdan",
+    "url": "https://github.com/accabog",
+    "maintainer": true
+  },
+  "license": "MIT",
+  "frameworks": "*",
+  "platforms": "*",
+  "headers": ["MedianFilter.h", "MedianFilter.hpp"],
+  "export": {
+    "include": [
+      "MedianFilter.h",
+      "MedianFilter.c",
+      "MedianFilter.hpp",
+      "examples",
+      "LICENSE"
+    ]
+  },
+  "build": {
+    "libArchive": false
+  }
+}

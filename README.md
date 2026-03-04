@@ -5,6 +5,7 @@
 [![Language: C/C++](https://img.shields.io/badge/Language-C%2FC%2B%2B-brightgreen.svg)]()
 [![Platform: Bare-metal / RTOS / Desktop](https://img.shields.io/badge/Platform-Bare--metal%20%2F%20RTOS%20%2F%20Desktop-orange.svg)]()
 [![No dynamic allocation](https://img.shields.io/badge/Heap-None-critical.svg)]()
+[![PlatformIO](https://badges.registry.platformio.org/packages/accabog/library/MedianFilter.svg)](https://registry.platformio.org/libraries/accabog/MedianFilter)
 
 **Heap-free, O(n) sliding-window median filter for embedded systems. Drop two files into your project and go.**
 
