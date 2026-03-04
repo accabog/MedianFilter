@@ -4,6 +4,7 @@
 *.exe
 *.out
 build/
+build_win/
 
 # Test binaries (built from tests/)
 stress_test

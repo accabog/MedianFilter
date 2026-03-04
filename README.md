@@ -107,21 +107,20 @@ The bidirectional search means average traversal is ~n/4 rather than n/2. The me
 
 Consistently among the fastest across all window sizes — and the clear winner at larger windows where it matters most.
 
-Throughput in **MSamples/s** (`gcc -O2`, x86-64, [Google Benchmark](benchmarks/)):
+Instructions per insert (lower is better), measured with [Valgrind/Callgrind](https://valgrind.org/docs/manual/cl-manual.html) (`gcc -O2`, averaged over 5 random seeds). Results are **deterministic and hardware-independent** — reproducible on any machine:
 
-| Window | **Ours (C)** | Insertion-sort ring | [vpetrigo](https://github.com/vpetrigo/median-filter) | std::nth_element | Naive sort | [takingBytes](https://github.com/takingBytes/MovingMedianFilter)* |
-|:------:|:------------:|:-------------------:|:------------------------------------------------------:|:----------------:|:----------:|:-----------------------------------------------------------------:|
-| 3      | **93.8**     | 173.1               | 80.3                                                   | 92.7             | 72.1       | 58.4                                                              |
-| 7      | **55.7**     | 55.4                | 43.4                                                   | 15.5             | 17.1       | 25.0                                                              |
-| 11     | **46.0**     | 48.8                | 37.1                                                   | 8.3              | 10.3       | 15.4                                                              |
-| 31     | **31.6**     | 25.9                | 19.4                                                   | 3.8              | 2.4        | 4.0                                                               |
-| 51     | **24.0**     | 22.2                | 14.3                                                   | 2.8              | 1.3        | 2.8                                                               |
+| Window | **Ours (C)** | **Ours (C++)** | Insertion-sort ring | [vpetrigo](https://github.com/vpetrigo/median-filter) | std::nth_element | Naive sort |
+|:------:|:------------:|:--------------:|:-------------------:|:------------------------------------------------------:|:----------------:|:----------:|
+| 3      | **124**      | **131**        | 112                 | 159                                                    | 179              | 194        |
+| 7      | **128**      | **137**        | 149                 | 190                                                    | 310              | 300        |
+| 11     | **134**      | **143**        | 173                 | 218                                                    | 390              | 444        |
+| 31     | **162**      | **172**        | 288                 | 359                                                    | 751              | 1446       |
+| 51     | **189**      | **200**        | 395                 | 499                                                    | 1078             | 2504       |
+| 101    | **259**      | **270**        | 669                 | 847                                                    | 1880             | 5452       |
 
-\*takingBytes supports `float` only — compared against our C++ `MedianFilter<float, N>` template.
+"Ours (C)" uses the opt-in `MEDIANFILTER_INLINE_API` inline Insert. At small windows (3), insertion-sort ring wins thanks to cache locality on tiny arrays. From window 7+, our linked-list approach takes the lead — and at window 101, it uses **2.6× fewer instructions** than insertion-sort and **3.3× fewer** than vpetrigo.
 
-At small windows (3–11), insertion-sort ring is competitive thanks to cache locality on tiny arrays. At window 31+, our linked-list approach pulls ahead decisively — O(n/2) search from the median pointer beats O(n) full-array insertion sort.
-
-RAM = `window_size * 24 + 40` bytes (64-bit). On 32-bit ARM, nodes are 12 bytes each. See [`benchmarks/`](benchmarks/) for full results and methodology.
+RAM = `window_size * 24 + 40` bytes (64-bit). On 32-bit ARM, nodes are 12 bytes each. See [`benchmarks/`](benchmarks/) for full results, throughput benchmarks, and methodology.
 
 ## API Reference
 

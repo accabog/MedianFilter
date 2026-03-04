@@ -18,6 +18,7 @@
 #ifdef __cplusplus
 #define restrict
 #endif
+#define MEDIANFILTER_INLINE_API
 extern "C" {
 #include "MedianFilter.h"
 }
@@ -91,6 +92,26 @@ static void BM_Ours_C(benchmark::State &state) {
         MEDIANFILTER_Init(&filter);
         for (int i = 0; i < NUM_SAMPLES; i++) {
             benchmark::DoNotOptimize(MEDIANFILTER_Insert(&filter, INT_DATA[i]));
+        }
+    }
+    state.SetItemsProcessed(state.iterations() * NUM_SAMPLES);
+}
+
+/* ── Our library: C API (non-inlined, via wrapper) ────────── */
+
+extern "C" int MEDIANFILTER_Insert_NoInline(sMedianFilter_t *filter, int sample);
+
+static void BM_Ours_C_NoInline(benchmark::State &state) {
+    const int win = static_cast<int>(state.range(0));
+    std::vector<sMedianNode_t> buf(win);
+    sMedianFilter_t filter;
+    filter.numNodes = win;
+    filter.medianBuffer = buf.data();
+
+    for (auto _ : state) {
+        MEDIANFILTER_Init(&filter);
+        for (int i = 0; i < NUM_SAMPLES; i++) {
+            benchmark::DoNotOptimize(MEDIANFILTER_Insert_NoInline(&filter, INT_DATA[i]));
         }
     }
     state.SetItemsProcessed(state.iterations() * NUM_SAMPLES);
@@ -199,10 +220,11 @@ static void BM_TakingBytes(benchmark::State &state) {
 
 /* ── Registration ─────────────────────────────────────────── */
 
-#define WINDOW_SIZES ->Arg(3)->Arg(5)->Arg(7)->Arg(9)->Arg(11)->Arg(21)->Arg(31)->Arg(51)
+#define WINDOW_SIZES ->Arg(3)->Arg(5)->Arg(7)->Arg(9)->Arg(11)->Arg(21)->Arg(31)->Arg(51)->Arg(101)
 
 /* Runtime window size (C APIs) */
 BENCHMARK(BM_Ours_C) WINDOW_SIZES;
+BENCHMARK(BM_Ours_C_NoInline) WINDOW_SIZES;
 BENCHMARK(BM_Vpetrigo) WINDOW_SIZES;
 BENCHMARK(BM_TakingBytes) WINDOW_SIZES;
 
@@ -211,7 +233,7 @@ BENCHMARK(BM_TakingBytes) WINDOW_SIZES;
 
 #define REG_ALL(Fn) \
     REG(Fn, 3); REG(Fn, 5); REG(Fn, 7); REG(Fn, 9); \
-    REG(Fn, 11); REG(Fn, 21); REG(Fn, 31); REG(Fn, 51)
+    REG(Fn, 11); REG(Fn, 21); REG(Fn, 31); REG(Fn, 51); REG(Fn, 101)
 
 REG_ALL(BM_Ours_Cpp);
 REG_ALL(BM_Ours_Cpp_Float);
