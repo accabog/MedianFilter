@@ -32,7 +32,6 @@ int MEDIANFILTER_Init(sMedianFilter_t *medianFilter)
         for(unsigned int i = 0; i < medianFilter->numNodes; i++)
         {
             medianFilter->medianBuffer[i].value = 0;
-            medianFilter->medianBuffer[i].nextAge = &medianFilter->medianBuffer[(i + 1) % medianFilter->numNodes];
             medianFilter->medianBuffer[i].nextValue = &medianFilter->medianBuffer[(i + 1) % medianFilter->numNodes];
             medianFilter->medianBuffer[(i + 1) % medianFilter->numNodes].prevValue = &medianFilter->medianBuffer[i];
         }
@@ -82,8 +81,11 @@ int MEDIANFILTER_Insert(sMedianFilter_t *restrict medianFilter, int sample)
     oldNext->prevValue = oldPrev;
     oldPrev->nextValue = oldNext;
 
-    //advance age head
-    medianFilter->ageHead = newNode->nextAge;
+    //advance age head (age chain is always buffer[0]→[1]→...→[N-1]→[0])
+    sMedianNode_t *nextAge = newNode + 1;
+    if(nextAge == medianFilter->medianBuffer + medianFilter->numNodes)
+        nextAge = medianFilter->medianBuffer;
+    medianFilter->ageHead = nextAge;
 
     //find insertion point — bidirectional search from median
     if(SAMPLE_LT(sample, newNode, medianHead))

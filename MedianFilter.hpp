@@ -32,7 +32,6 @@ class MedianFilter
 	typedef struct sMedianNode
 	{
 		type value;
-		struct sMedianNode *nextAge;
 		struct sMedianNode *nextValue;
 		struct sMedianNode *prevValue;
 	}sMedianNode_t;
@@ -55,7 +54,6 @@ MedianFilter<type, numElements>::MedianFilter()
 	for(unsigned int i = 0; i < numElements; i++)
 	{
 		m_medianBuffer[i].value = 0;
-		m_medianBuffer[i].nextAge = &m_medianBuffer[(i + 1) % numElements];
 		m_medianBuffer[i].nextValue = &m_medianBuffer[(i + 1) % numElements];
 		m_medianBuffer[(i + 1) % numElements].prevValue = &m_medianBuffer[i];
 	}
@@ -97,8 +95,11 @@ type MedianFilter<type, numElements>::Insert(type value)
 	oldNext->prevValue = oldPrev;
 	oldPrev->nextValue = oldNext;
 
-	//advance age head
-	m_ageHead = newNode->nextAge;
+	//advance age head (age chain is always buffer[0]→[1]→...→[N-1]→[0])
+	sMedianNode_t *nextAge = newNode + 1;
+	if(nextAge == m_medianBuffer + numElements)
+		nextAge = m_medianBuffer;
+	m_ageHead = nextAge;
 
 	//find insertion point — bidirectional search from median
 	if(MEDIANFILTER_SAMPLE_LT(value, newNode, medianHead))

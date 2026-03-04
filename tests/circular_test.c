@@ -283,10 +283,6 @@ int main(void)
         /* Verify initial chain structure */
         int init_ok = 1;
 
-        if (nodes[0].nextAge != &nodes[1]) init_ok = 0;
-        if (nodes[1].nextAge != &nodes[2]) init_ok = 0;
-        if (nodes[2].nextAge != &nodes[0]) init_ok = 0;
-
         if (nodes[0].nextValue != &nodes[1]) init_ok = 0;
         if (nodes[1].nextValue != &nodes[2]) init_ok = 0;
         if (nodes[2].nextValue != &nodes[0]) init_ok = 0;
