@@ -1,0 +1,80 @@
+name: Bug Report
+description: Report a bug in MedianFilter
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. Please fill in the details below.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear description of the bug.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Minimal steps to reproduce the behavior.
+      placeholder: |
+        1. Initialize filter with window size ...
+        2. Insert values ...
+        3. Observe incorrect median ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened.
+    validations:
+      required: true
+
+  - type: input
+    id: compiler
+    attributes:
+      label: Compiler & Version
+      description: e.g., GCC 13.2, Clang 17, MSVC 19.38
+      placeholder: GCC 13.2
+    validations:
+      required: false
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform / MCU
+      description: e.g., x86-64 Linux, STM32F407, ESP32, Arduino Uno
+      placeholder: x86-64 Linux
+    validations:
+      required: false
+
+  - type: input
+    id: window_size
+    attributes:
+      label: Window Size
+      description: The filter window size used when the bug occurs.
+      placeholder: "7"
+    validations:
+      required: false
+
+  - type: textarea
+    id: reproducer
+    attributes:
+      label: Minimal Reproducer
+      description: Paste a short code snippet that demonstrates the issue.
+      render: c
+    validations:
+      required: false
