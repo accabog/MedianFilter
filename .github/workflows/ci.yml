@@ -34,7 +34,9 @@ jobs:
 
     env:
       COMPILER: ${{ matrix.compiler }}
-      LANG: ${{ matrix.lang }}
+      # NB: use MF_LANG, not LANG — LANG is the POSIX locale variable and setting
+      # it to "c"/"cpp" clobbers the runner locale ("cannot change locale" noise).
+      MF_LANG: ${{ matrix.lang }}
       STD: ${{ matrix.std }}
 
     steps:
@@ -51,11 +53,16 @@ jobs:
 
           FLAGS="-Wall -Wextra -Wpedantic -Werror -O2 -I. -std=$STD"
 
-          if [ "$LANG" = "c" ]; then
+          if [ "$MF_LANG" = "c" ]; then
             $CC $FLAGS -o stress_test tests/stress_test.c MedianFilter.c
             $CC $FLAGS -o circular_test tests/circular_test.c MedianFilter.c
+            $CC $FLAGS -o init_test tests/init_test.c MedianFilter.c
+            # Exercise the opt-in inline Insert (MEDIANFILTER_INLINE_API) too.
+            $CC $FLAGS -DMEDIANFILTER_INLINE_API -o stress_test_inline tests/stress_test.c MedianFilter.c
             ./stress_test
             ./circular_test
+            ./init_test
+            ./stress_test_inline
           else
             $CXX $FLAGS -o test_cpp tests/test_cpp.cpp
             ./test_cpp
@@ -66,11 +73,15 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
-          if "%LANG%" == "c" (
+          if "%MF_LANG%" == "c" (
             cl /W4 /WX /O2 /I. /Fe:stress_test.exe tests\stress_test.c MedianFilter.c
             cl /W4 /WX /O2 /I. /Fe:circular_test.exe tests\circular_test.c MedianFilter.c
+            cl /W4 /WX /O2 /I. /Fe:init_test.exe tests\init_test.c MedianFilter.c
+            cl /W4 /WX /O2 /I. /DMEDIANFILTER_INLINE_API /Fe:stress_test_inline.exe tests\stress_test.c MedianFilter.c
             stress_test.exe
             circular_test.exe
+            init_test.exe
+            stress_test_inline.exe
           ) else (
             cl /W4 /WX /O2 /EHsc /I. /Fe:test_cpp.exe tests\test_cpp.cpp
             test_cpp.exe
@@ -103,10 +114,14 @@ jobs:
 
           $CC  $SAN_FLAGS -std=c11   -o stress_test   tests/stress_test.c MedianFilter.c
           $CC  $SAN_FLAGS -std=c11   -o circular_test tests/circular_test.c MedianFilter.c
+          $CC  $SAN_FLAGS -std=c11   -o init_test     tests/init_test.c MedianFilter.c
+          $CC  $SAN_FLAGS -std=c11 -DMEDIANFILTER_INLINE_API -o stress_test_inline tests/stress_test.c MedianFilter.c
           $CXX $SAN_FLAGS -std=c++17 -o test_cpp      tests/test_cpp.cpp
 
           ./stress_test
           ./circular_test
+          ./init_test
+          ./stress_test_inline
           ./test_cpp
 
   cppcheck:
@@ -155,11 +170,14 @@ jobs:
           gcc $CFLAGS -o stress_test stress_test.o MedianFilter.o
           gcc $CFLAGS -c tests/circular_test.c -o circular_test.o
           gcc $CFLAGS -o circular_test circular_test.o MedianFilter.o
+          gcc $CFLAGS -c tests/init_test.c -o init_test.o
+          gcc $CFLAGS -o init_test init_test.o MedianFilter.o
 
       - name: Run tests for coverage
         run: |
           ./stress_test
           ./circular_test
+          ./init_test
 
       - name: Generate coverage report
         run: gcov MedianFilter.gcda

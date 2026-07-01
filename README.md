@@ -7,14 +7,14 @@
 [![No dynamic allocation](https://img.shields.io/badge/Heap-None-critical.svg)]()
 [![PlatformIO](https://badges.registry.platformio.org/packages/accabog/library/MedianFilter.svg)](https://registry.platformio.org/libraries/accabog/MedianFilter)
 
-**Heap-free, O(n) sliding-window median filter for embedded systems. Drop two files into your project and go.**
+**Heap-free, O(n/2)-worst-case sliding-window median filter for embedded systems. Drop two files into your project and go.**
 
 Removes impulse noise (salt-and-pepper spikes) from analog signals in real time — ideal for ADC readings, sensor fusion, and any DSP pipeline where you need a robust filter with zero malloc.
 
 ## Features
 
 - **Zero heap allocation** — stack or static buffers only, safe for bare-metal and RTOS
-- **O(n/2) average insert** — bidirectional search from the median pointer
+- **O(n/2) worst-case insert (~n/4 average)** — bidirectional search from the median pointer
 - **O(1) median tracking** — the median pointer adjusts by at most one step per insert, never recomputed
 - **Stable duplicate handling** — address-based tiebreaker eliminates ambiguity for equal-valued samples
 - **C API** — caller-allocated buffers, two functions, done
@@ -74,7 +74,7 @@ The [`examples/`](examples/) folder contains runnable demos and platform-specifi
 | [Window Size Comparison](examples/04_window_size_comparison.c) | Noise removal vs. signal lag tradeoff |
 | [C++ Template](examples/05_cpp_template.cpp) | `float`, `int16_t`, `double` type flexibility |
 | [STM32 HAL](examples/platform/stm32_hal_adc.c) | ADC interrupt callback (reference) |
-| [Arduino](examples/platform/arduino_analog_filter.ino) | `analogRead()` filter |
+| [Arduino](examples/platform/arduino_analog_filter/arduino_analog_filter.ino) | `analogRead()` filter |
 | [ESP-IDF](examples/platform/esp_idf_adc_filter.c) | FreeRTOS ADC task (reference) |
 
 Build and run all desktop demos:
@@ -121,7 +121,7 @@ Instructions per insert (lower is better), measured with [Valgrind/Callgrind](ht
 
 "Ours (C)" uses the opt-in `MEDIANFILTER_INLINE_API` inline Insert. At small windows (3), insertion-sort ring wins thanks to cache locality on tiny arrays. From window 7+, our linked-list approach takes the lead — and at window 101, it uses **2.6× fewer instructions** than insertion-sort and **3.3× fewer** than vpetrigo.
 
-RAM = `window_size * 24 + 40` bytes (64-bit). On 32-bit ARM, nodes are 12 bytes each. See [`benchmarks/`](benchmarks/) for full results, throughput benchmarks, and methodology.
+RAM = `window_size * 24 + 40` bytes (64-bit). On 32-bit targets, nodes are 12 bytes each and the filter struct is 20 bytes, so RAM = `window_size * 12 + 20` bytes. See [`benchmarks/`](benchmarks/) for full results, throughput benchmarks, and methodology.
 
 ## API Reference
 

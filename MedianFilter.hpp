@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2018 Alexandru Bogdan
 /*
  * MedianFilter.hpp
  *
@@ -22,6 +24,14 @@
                                                  ((val) == (b)->value && (uintptr_t)(nptr) < (uintptr_t)(b)))
 #define MEDIANFILTER_SAMPLE_GE(val, nptr, b)  (!MEDIANFILTER_SAMPLE_LT(val, nptr, b))
 
+/*
+ * Fixed-size sliding-window median filter (header-only).
+ *
+ * NOTE for floating-point instantiations: NaN inputs are unsupported.  NaN
+ * compares false under both < and ==, which breaks the strict total order the
+ * sorted value chain relies on and corrupts the running median (persisting
+ * after the NaN is evicted).  Reject or replace NaNs before calling Insert().
+ */
 template <typename type, unsigned int numElements>
 class MedianFilter
 {
@@ -44,6 +54,19 @@ class MedianFilter
 public:
 	MedianFilter();
 	~MedianFilter() = default;
+
+	/*
+	 * Non-copyable and non-movable.  Every node stores absolute pointers into
+	 * this object's own m_medianBuffer, so a compiler-generated copy or move
+	 * would leave the destination's links dangling into the source buffer
+	 * (use-after-free once the source is destroyed or reused).  Keep a filter
+	 * in place: do not return it by value, assign it, or store it in a
+	 * relocating container such as std::vector.  Misuse is a compile error.
+	 */
+	MedianFilter(const MedianFilter&)            = delete;
+	MedianFilter& operator=(const MedianFilter&) = delete;
+	MedianFilter(MedianFilter&&)                 = delete;
+	MedianFilter& operator=(MedianFilter&&)      = delete;
 
 	type Insert(type value);
 };

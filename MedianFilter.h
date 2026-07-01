@@ -1,10 +1,12 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2018 Alexandru Bogdan
 /*
  * MedianFilter.h
  *
  *  Created on: May 19, 2018
  *      Author: alexandru.bogdan
  */
- 
+
 #ifndef MEDIANFILTER_H_
 #define MEDIANFILTER_H_
 
@@ -12,22 +14,53 @@
 extern "C" {
 #endif
 
+/*
+ * `restrict` is a C99 keyword and is not part of standard C++.  `extern "C"`
+ * changes linkage only, not grammar, so an unguarded `restrict` would make this
+ * header fail to compile in a C++ translation unit (defeating the interop
+ * guards).  Expand it to `restrict` only where the compiler actually supports
+ * it, and to nothing under C++ or pre-C99 C.
+ */
+#if defined(__cplusplus) || (defined(__STDC_VERSION__) && __STDC_VERSION__ < 199901L)
+#  define MF_RESTRICT
+#else
+#  define MF_RESTRICT restrict
+#endif
+
 typedef struct sMedianNode
 {
     int value;                      //sample value
-    struct sMedianNode *nextValue;  //pointer to next smallest value
-    struct sMedianNode *prevValue;  //pointer to previous smallest value
+    struct sMedianNode *nextValue;  //pointer to next larger value (toward the maximum)
+    struct sMedianNode *prevValue;  //pointer to next smaller value (toward the minimum)
 }sMedianNode_t;
 
 typedef struct
 {
-    unsigned int numNodes;          //median node buffer length
-    sMedianNode_t *medianBuffer;    //median node buffer
+    unsigned int numNodes;          //window length: odd, > 1, immutable after Init
+    sMedianNode_t *medianBuffer;    //caller-owned buffer of at least numNodes nodes
     sMedianNode_t *ageHead;         //pointer to oldest value
     sMedianNode_t *valueHead;       //pointer to smallest value
     sMedianNode_t *medianHead;      //pointer to median value
 }sMedianFilter_t;
 
+/*
+ * Initialize a filter.  Before calling, set `numNodes` (odd and > 1) and point
+ * `medianBuffer` at a buffer holding at least `numNodes` contiguous nodes.
+ *
+ * Returns 0 on success, -1 on invalid config (NULL filter/buffer, even
+ * numNodes, or numNodes <= 1).  ALWAYS check the return value: on failure the
+ * filter is left uninitialized and passing it to Insert is undefined behavior
+ * (Insert performs no validation — it is a hot path).
+ *
+ * Contract notes:
+ *  - Warmup: Init zero-fills the buffer, so the first (numNodes - 1) inserts
+ *    return the median of {samples seen so far} U {leftover zeros}.  Discard or
+ *    gate that transient if a clean startup matters.
+ *  - `numNodes` must not change after Init; call Init again to resize.
+ *  - Filter state stores absolute pointers into `medianBuffer`, so the struct
+ *    and buffer are NOT memcpy-relocatable or serializable — re-Init after
+ *    moving them in memory.
+ */
 int MEDIANFILTER_Init(sMedianFilter_t *medianFilter);
 
 #ifdef MEDIANFILTER_INLINE_API
@@ -44,7 +77,7 @@ int MEDIANFILTER_Init(sMedianFilter_t *medianFilter);
                                                   ((val) == (b)->value && (uintptr_t)(nptr) < (uintptr_t)(b)))
 #define MEDIANFILTER_SAMPLE_GE_(val, nptr, b)  (!MEDIANFILTER_SAMPLE_LT_(val, nptr, b))
 
-static inline int MEDIANFILTER_Insert(sMedianFilter_t *restrict medianFilter, int sample)
+static inline int MEDIANFILTER_Insert(sMedianFilter_t *MF_RESTRICT medianFilter, int sample)
 {
     sMedianNode_t *newNode, *it;
 
@@ -109,11 +142,17 @@ static inline int MEDIANFILTER_Insert(sMedianFilter_t *restrict medianFilter, in
     return medianHead->value;
 }
 
+#undef MEDIANFILTER_NODE_GT_
+#undef MEDIANFILTER_SAMPLE_LT_
+#undef MEDIANFILTER_SAMPLE_GE_
+
 #else
-int MEDIANFILTER_Insert(sMedianFilter_t *restrict medianFilter, int sample);
+int MEDIANFILTER_Insert(sMedianFilter_t *MF_RESTRICT medianFilter, int sample);
 #endif
 
 #ifdef __cplusplus
 }
 #endif
+
+#undef MF_RESTRICT
 #endif

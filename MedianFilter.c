@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2018 Alexandru Bogdan
 /*
  * MedianFilter.c
  *
@@ -6,22 +8,6 @@
  */
 
 #include "MedianFilter.h"
-#include <stdint.h>
-
-/*
- * Composite comparisons: value first, address tiebreaker.
- *
- * NODE_GT compares two node pointers.
- * SAMPLE_LT / SAMPLE_GE compare a (sample, node_addr) pair against a node.
- * The address tiebreaker uses uintptr_t casts which are well-defined for
- * pointers into the same array.
- */
-#define NODE_GT(a, b)  ((a)->value > (b)->value || \
-                         ((a)->value == (b)->value && (uintptr_t)(a) > (uintptr_t)(b)))
-
-#define SAMPLE_LT(val, nptr, b)  ((val) < (b)->value || \
-                                   ((val) == (b)->value && (uintptr_t)(nptr) < (uintptr_t)(b)))
-#define SAMPLE_GE(val, nptr, b)  (!SAMPLE_LT(val, nptr, b))
 
 int MEDIANFILTER_Init(sMedianFilter_t *medianFilter)
 {
@@ -45,6 +31,32 @@ int MEDIANFILTER_Init(sMedianFilter_t *medianFilter)
 
     return -1;
 }
+
+/*
+ * When MEDIANFILTER_INLINE_API is defined, MedianFilter.h provides Insert as a
+ * static inline; compiling an out-of-line copy here too would be a redefinition
+ * (and lets a caller link this TU while opting into the inline variant).  So
+ * build the out-of-line Insert and its helper macros only when the inline API
+ * is NOT selected.
+ */
+#ifndef MEDIANFILTER_INLINE_API
+
+#include <stdint.h>
+
+/*
+ * Composite comparisons: value first, address tiebreaker.
+ *
+ * NODE_GT compares two node pointers.
+ * SAMPLE_LT / SAMPLE_GE compare a (sample, node_addr) pair against a node.
+ * The address tiebreaker uses uintptr_t casts which are well-defined for
+ * pointers into the same array.
+ */
+#define NODE_GT(a, b)  ((a)->value > (b)->value || \
+                         ((a)->value == (b)->value && (uintptr_t)(a) > (uintptr_t)(b)))
+
+#define SAMPLE_LT(val, nptr, b)  ((val) < (b)->value || \
+                                   ((val) == (b)->value && (uintptr_t)(nptr) < (uintptr_t)(b)))
+#define SAMPLE_GE(val, nptr, b)  (!SAMPLE_LT(val, nptr, b))
 
 /*
  * Caller must pass a valid, initialized filter (via MEDIANFILTER_Init).
@@ -126,3 +138,9 @@ int MEDIANFILTER_Insert(sMedianFilter_t *restrict medianFilter, int sample)
 
     return medianHead->value;
 }
+
+#undef NODE_GT
+#undef SAMPLE_LT
+#undef SAMPLE_GE
+
+#endif /* !MEDIANFILTER_INLINE_API */
