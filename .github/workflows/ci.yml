@@ -72,19 +72,21 @@ jobs:
         if: matrix.compiler == 'msvc'
         shell: cmd
         run: |
-          call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" x64
+          rem Locate whatever VS edition the runner ships (path is not stable across images).
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set "VSINSTALL=%%i"
+          call "%VSINSTALL%\VC\Auxiliary\Build\vcvarsall.bat" x64 || exit /b 1
           if "%MF_LANG%" == "c" (
-            cl /W4 /WX /O2 /I. /Fe:stress_test.exe tests\stress_test.c MedianFilter.c
-            cl /W4 /WX /O2 /I. /Fe:circular_test.exe tests\circular_test.c MedianFilter.c
-            cl /W4 /WX /O2 /I. /Fe:init_test.exe tests\init_test.c MedianFilter.c
-            cl /W4 /WX /O2 /I. /DMEDIANFILTER_INLINE_API /Fe:stress_test_inline.exe tests\stress_test.c MedianFilter.c
-            stress_test.exe
-            circular_test.exe
-            init_test.exe
-            stress_test_inline.exe
+            cl /W4 /WX /O2 /I. /Fe:stress_test.exe tests\stress_test.c MedianFilter.c || exit /b 1
+            cl /W4 /WX /O2 /I. /Fe:circular_test.exe tests\circular_test.c MedianFilter.c || exit /b 1
+            cl /W4 /WX /O2 /I. /Fe:init_test.exe tests\init_test.c MedianFilter.c || exit /b 1
+            cl /W4 /WX /O2 /I. /DMEDIANFILTER_INLINE_API /Fe:stress_test_inline.exe tests\stress_test.c MedianFilter.c || exit /b 1
+            stress_test.exe || exit /b 1
+            circular_test.exe || exit /b 1
+            init_test.exe || exit /b 1
+            stress_test_inline.exe || exit /b 1
           ) else (
-            cl /W4 /WX /O2 /EHsc /I. /Fe:test_cpp.exe tests\test_cpp.cpp
-            test_cpp.exe
+            cl /W4 /WX /O2 /EHsc /I. /Fe:test_cpp.exe tests\test_cpp.cpp || exit /b 1
+            test_cpp.exe || exit /b 1
           )
 
   sanitizers:
