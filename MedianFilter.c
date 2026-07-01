@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2018 Alexandru Bogdan
 /*
  * MedianFilter.c
  *
@@ -6,24 +8,8 @@
  */
 
 #include "MedianFilter.h"
-#include <stdint.h>
 
-/*
- * Composite comparisons: value first, address tiebreaker.
- *
- * NODE_GT compares two node pointers.
- * SAMPLE_LT / SAMPLE_GE compare a (sample, node_addr) pair against a node.
- * The address tiebreaker uses uintptr_t casts which are well-defined for
- * pointers into the same array.
- */
-#define NODE_GT(a, b)  ((a)->value > (b)->value || \
-                         ((a)->value == (b)->value && (uintptr_t)(a) > (uintptr_t)(b)))
-
-#define SAMPLE_LT(val, nptr, b)  ((val) < (b)->value || \
-                                   ((val) == (b)->value && (uintptr_t)(nptr) < (uintptr_t)(b)))
-#define SAMPLE_GE(val, nptr, b)  (!SAMPLE_LT(val, nptr, b))
-
-int MEDIANFILTER_Init(sMedianFilter_t *medianFilter)
+int MEDIANFILTER_Init(MedianFilter_t *medianFilter)
 {
     if(medianFilter && medianFilter->medianBuffer &&
         (medianFilter->numNodes % 2) && (medianFilter->numNodes > 1))
@@ -47,17 +33,43 @@ int MEDIANFILTER_Init(sMedianFilter_t *medianFilter)
 }
 
 /*
+ * When MEDIANFILTER_INLINE_API is defined, MedianFilter.h provides Insert as a
+ * static inline; compiling an out-of-line copy here too would be a redefinition
+ * (and lets a caller link this TU while opting into the inline variant).  So
+ * build the out-of-line Insert and its helper macros only when the inline API
+ * is NOT selected.
+ */
+#ifndef MEDIANFILTER_INLINE_API
+
+#include <stdint.h>
+
+/*
+ * Composite comparisons: value first, address tiebreaker.
+ *
+ * NODE_GT compares two node pointers.
+ * SAMPLE_LT / SAMPLE_GE compare a (sample, node_addr) pair against a node.
+ * The address tiebreaker uses uintptr_t casts which are well-defined for
+ * pointers into the same array.
+ */
+#define NODE_GT(a, b)  ((a)->value > (b)->value || \
+                         ((a)->value == (b)->value && (uintptr_t)(a) > (uintptr_t)(b)))
+
+#define SAMPLE_LT(val, nptr, b)  ((val) < (b)->value || \
+                                   ((val) == (b)->value && (uintptr_t)(nptr) < (uintptr_t)(b)))
+#define SAMPLE_GE(val, nptr, b)  (!SAMPLE_LT(val, nptr, b))
+
+/*
  * Caller must pass a valid, initialized filter (via MEDIANFILTER_Init).
  * No NULL check here — this is a hot DSP path and Init already validates.
  */
-int MEDIANFILTER_Insert(sMedianFilter_t *restrict medianFilter, int sample)
+int MEDIANFILTER_Insert(MedianFilter_t *restrict medianFilter, int sample)
 {
-    sMedianNode_t *newNode, *it;
+    MedianFilterNode_t *newNode, *it;
 
     //cache struct fields in locals to avoid repeated pointer indirection
-    sMedianNode_t *ageHead    = medianFilter->ageHead;
-    sMedianNode_t *valueHead  = medianFilter->valueHead;
-    sMedianNode_t *medianHead = medianFilter->medianHead;
+    MedianFilterNode_t *ageHead    = medianFilter->ageHead;
+    MedianFilterNode_t *valueHead  = medianFilter->valueHead;
+    MedianFilterNode_t *medianHead = medianFilter->medianHead;
     const unsigned int half   = medianFilter->numNodes >> 1;
 
     if(ageHead == valueHead)
@@ -76,13 +88,13 @@ int MEDIANFILTER_Insert(sMedianFilter_t *restrict medianFilter, int sample)
     newNode->value = sample;
 
     //unlink from value chain
-    sMedianNode_t *oldNext = newNode->nextValue;
-    sMedianNode_t *oldPrev = newNode->prevValue;
+    MedianFilterNode_t *oldNext = newNode->nextValue;
+    MedianFilterNode_t *oldPrev = newNode->prevValue;
     oldNext->prevValue = oldPrev;
     oldPrev->nextValue = oldNext;
 
     //advance age head (age chain is always buffer[0]→[1]→...→[N-1]→[0])
-    sMedianNode_t *nextAge = newNode + 1;
+    MedianFilterNode_t *nextAge = newNode + 1;
     if(nextAge == medianFilter->medianBuffer + medianFilter->numNodes)
         nextAge = medianFilter->medianBuffer;
     medianFilter->ageHead = nextAge;
@@ -111,7 +123,7 @@ int MEDIANFILTER_Insert(sMedianFilter_t *restrict medianFilter, int sample)
     }
 
     //link new node into value chain
-    sMedianNode_t *insertPrev = it->prevValue;
+    MedianFilterNode_t *insertPrev = it->prevValue;
     insertPrev->nextValue = newNode;
     newNode->prevValue    = insertPrev;
     it->prevValue         = newNode;
@@ -126,3 +138,9 @@ int MEDIANFILTER_Insert(sMedianFilter_t *restrict medianFilter, int sample)
 
     return medianHead->value;
 }
+
+#undef NODE_GT
+#undef SAMPLE_LT
+#undef SAMPLE_GE
+
+#endif /* !MEDIANFILTER_INLINE_API */

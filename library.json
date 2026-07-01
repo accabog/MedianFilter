@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/schema/library.json",
   "name": "MedianFilter",
   "version": "1.0.0",
-  "description": "Heap-free, O(n) sliding-window median filter for embedded C/C++. Removes spike/impulse noise from analog signals with no dynamic memory allocation.",
+  "description": "Heap-free, O(n/2) sliding-window median filter for embedded C/C++. Removes spike/impulse noise from analog signals with no dynamic memory allocation.",
   "keywords": [
     "median", "filter", "dsp", "signal processing", "noise reduction",
     "sliding window", "embedded", "bare-metal", "real-time", "analog"

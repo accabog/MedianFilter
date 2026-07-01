@@ -25,5 +25,5 @@ These files show integration patterns for popular embedded platforms. Copy the r
 | File | Platform | Pattern |
 |------|----------|---------|
 | `platform/stm32_hal_adc.c` | STM32 (HAL) | ADC interrupt callback |
-| `platform/arduino_analog_filter.ino` | Arduino | `analogRead()` in `loop()` |
+| `platform/arduino_analog_filter/arduino_analog_filter.ino` | Arduino | `analogRead()` in `loop()` |
 | `platform/esp_idf_adc_filter.c` | ESP32 (ESP-IDF) | FreeRTOS task with `adc_oneshot` |
