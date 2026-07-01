@@ -27,21 +27,30 @@ extern "C" {
 #  define MF_RESTRICT restrict
 #endif
 
-typedef struct sMedianNode
+typedef struct MedianFilterNode
 {
-    int value;                      //sample value
-    struct sMedianNode *nextValue;  //pointer to next larger value (toward the maximum)
-    struct sMedianNode *prevValue;  //pointer to next smaller value (toward the minimum)
-}sMedianNode_t;
+    int value;                            //sample value
+    struct MedianFilterNode *nextValue;   //pointer to next larger value (toward the maximum)
+    struct MedianFilterNode *prevValue;   //pointer to next smaller value (toward the minimum)
+}MedianFilterNode_t;
 
 typedef struct
 {
-    unsigned int numNodes;          //window length: odd, > 1, immutable after Init
-    sMedianNode_t *medianBuffer;    //caller-owned buffer of at least numNodes nodes
-    sMedianNode_t *ageHead;         //pointer to oldest value
-    sMedianNode_t *valueHead;       //pointer to smallest value
-    sMedianNode_t *medianHead;      //pointer to median value
-}sMedianFilter_t;
+    unsigned int numNodes;                //window length: odd, > 1, immutable after Init
+    MedianFilterNode_t *medianBuffer;     //caller-owned buffer of at least numNodes nodes
+    MedianFilterNode_t *ageHead;          //pointer to oldest value
+    MedianFilterNode_t *valueHead;        //pointer to smallest value
+    MedianFilterNode_t *medianHead;       //pointer to median value
+}MedianFilter_t;
+
+/*
+ * Backward-compatible aliases for the original (unprefixed) type names.
+ * DEPRECATED: prefer MedianFilterNode_t / MedianFilter_t — the bare
+ * sMedianNode_t / sMedianFilter_t names polluted the global namespace.
+ * These aliases are the same types, so existing code keeps compiling unchanged.
+ */
+typedef MedianFilterNode_t sMedianNode_t;
+typedef MedianFilter_t     sMedianFilter_t;
 
 /*
  * Initialize a filter.  Before calling, set `numNodes` (odd and > 1) and point
@@ -61,7 +70,7 @@ typedef struct
  *    and buffer are NOT memcpy-relocatable or serializable — re-Init after
  *    moving them in memory.
  */
-int MEDIANFILTER_Init(sMedianFilter_t *medianFilter);
+int MEDIANFILTER_Init(MedianFilter_t *medianFilter);
 
 #ifdef MEDIANFILTER_INLINE_API
 /*
@@ -77,14 +86,14 @@ int MEDIANFILTER_Init(sMedianFilter_t *medianFilter);
                                                   ((val) == (b)->value && (uintptr_t)(nptr) < (uintptr_t)(b)))
 #define MEDIANFILTER_SAMPLE_GE_(val, nptr, b)  (!MEDIANFILTER_SAMPLE_LT_(val, nptr, b))
 
-static inline int MEDIANFILTER_Insert(sMedianFilter_t *MF_RESTRICT medianFilter, int sample)
+static inline int MEDIANFILTER_Insert(MedianFilter_t *MF_RESTRICT medianFilter, int sample)
 {
-    sMedianNode_t *newNode, *it;
+    MedianFilterNode_t *newNode, *it;
 
-    sMedianNode_t *ageHead    = medianFilter->ageHead;
-    sMedianNode_t *valueHead  = medianFilter->valueHead;
-    sMedianNode_t *medianHead = medianFilter->medianHead;
-    const unsigned int half   = medianFilter->numNodes >> 1;
+    MedianFilterNode_t *ageHead    = medianFilter->ageHead;
+    MedianFilterNode_t *valueHead  = medianFilter->valueHead;
+    MedianFilterNode_t *medianHead = medianFilter->medianHead;
+    const unsigned int half        = medianFilter->numNodes >> 1;
 
     if(ageHead == valueHead)
         valueHead = valueHead->nextValue;
@@ -95,12 +104,12 @@ static inline int MEDIANFILTER_Insert(sMedianFilter_t *MF_RESTRICT medianFilter,
     newNode = ageHead;
     newNode->value = sample;
 
-    sMedianNode_t *oldNext = newNode->nextValue;
-    sMedianNode_t *oldPrev = newNode->prevValue;
+    MedianFilterNode_t *oldNext = newNode->nextValue;
+    MedianFilterNode_t *oldPrev = newNode->prevValue;
     oldNext->prevValue = oldPrev;
     oldPrev->nextValue = oldNext;
 
-    sMedianNode_t *nextAge = newNode + 1;
+    MedianFilterNode_t *nextAge = newNode + 1;
     if(nextAge == medianFilter->medianBuffer + medianFilter->numNodes)
         nextAge = medianFilter->medianBuffer;
     medianFilter->ageHead = nextAge;
@@ -127,7 +136,7 @@ static inline int MEDIANFILTER_Insert(sMedianFilter_t *MF_RESTRICT medianFilter,
         }
     }
 
-    sMedianNode_t *insertPrev = it->prevValue;
+    MedianFilterNode_t *insertPrev = it->prevValue;
     insertPrev->nextValue = newNode;
     newNode->prevValue    = insertPrev;
     it->prevValue         = newNode;
@@ -147,7 +156,7 @@ static inline int MEDIANFILTER_Insert(sMedianFilter_t *MF_RESTRICT medianFilter,
 #undef MEDIANFILTER_SAMPLE_GE_
 
 #else
-int MEDIANFILTER_Insert(sMedianFilter_t *MF_RESTRICT medianFilter, int sample);
+int MEDIANFILTER_Insert(MedianFilter_t *MF_RESTRICT medianFilter, int sample);
 #endif
 
 #ifdef __cplusplus

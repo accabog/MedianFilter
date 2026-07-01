@@ -31,8 +31,8 @@ Removes impulse noise (salt-and-pepper spikes) from analog signals in real time 
 
 #define WINDOW_SIZE 7
 
-static sMedianFilter_t filter;
-static sMedianNode_t   buffer[WINDOW_SIZE];
+static MedianFilter_t     filter;
+static MedianFilterNode_t buffer[WINDOW_SIZE];
 
 void setup(void)
 {
@@ -129,10 +129,12 @@ RAM = `window_size * 24 + 40` bytes (64-bit). On 32-bit targets, nodes are 12 by
 
 | Function | Signature | Returns |
 |:---------|:----------|:--------|
-| **Init** | `int MEDIANFILTER_Init(sMedianFilter_t *filter)` | `0` on success, `-1` on invalid config |
-| **Insert** | `int MEDIANFILTER_Insert(sMedianFilter_t *restrict filter, int sample)` | Current median value |
+| **Init** | `int MEDIANFILTER_Init(MedianFilter_t *filter)` | `0` on success, `-1` on invalid config |
+| **Insert** | `int MEDIANFILTER_Insert(MedianFilter_t *restrict filter, int sample)` | Current median value |
 
-The caller must allocate `sMedianFilter_t` and a `sMedianNode_t[N]` buffer, set `numNodes = N` and `medianBuffer = buffer`, then call Init. Window size must be **odd** and **> 1**.
+The caller must allocate `MedianFilter_t` and a `MedianFilterNode_t[N]` buffer, set `numNodes = N` and `medianBuffer = buffer`, then call Init. Window size must be **odd** and **> 1**.
+
+> The type names were previously `sMedianFilter_t` / `sMedianNode_t`; those still work as deprecated aliases, so existing code needs no changes.
 
 **Inline variant:** For tight-loop callers (e.g. processing an ADC buffer), define `MEDIANFILTER_INLINE_API` before including the header to get a `static inline` Insert that eliminates function-call overhead.
 

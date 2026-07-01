@@ -11,7 +11,22 @@
 #include "MedianFilter.h"
 #include "test_harness.h"
 
-static int expect_init(const char *label, sMedianFilter_t *f, int expected)
+/*
+ * The deprecated aliases sMedianNode_t / sMedianFilter_t must resolve to the
+ * SAME types as MedianFilterNode_t / MedianFilter_t (not merely layout-
+ * compatible).  These cross-assignments compile without a cast only if the
+ * types are identical; under -Werror (-Wincompatible-pointer-types) a mismatch
+ * would fail the build.  Compiles on gcc, clang, and MSVC.
+ */
+static void alias_compat_check(void)
+{
+    MedianFilter_t      f;  sMedianFilter_t    *fp = &f;  (void)fp;
+    sMedianFilter_t     g;  MedianFilter_t     *gp = &g;  (void)gp;
+    MedianFilterNode_t  n;  sMedianNode_t      *np = &n;  (void)np;
+    sMedianNode_t       m;  MedianFilterNode_t *mp = &m;  (void)mp;
+}
+
+static int expect_init(const char *label, MedianFilter_t *f, int expected)
 {
     int rc = MEDIANFILTER_Init(f);
     TEST_BEGIN(label);
@@ -22,9 +37,14 @@ static int expect_init(const char *label, sMedianFilter_t *f, int expected)
 
 int main(void)
 {
-    sMedianNode_t nodes[8];
+    MedianFilterNode_t nodes[8];
 
     TEST_SUITE_BEGIN("MedianFilter Init Validation Test");
+
+    TEST_SECTION("Backward-compat type aliases");
+    alias_compat_check();
+    TEST_BEGIN("alias_types_identical");
+    TEST_PASS();  /* reaching here means the TU compiled: aliases == canonical types */
 
     TEST_SECTION("Rejections (expect -1)");
 
@@ -33,31 +53,31 @@ int main(void)
 
     /* NULL buffer */
     {
-        sMedianFilter_t f = { 3, NULL, NULL, NULL, NULL };
+        MedianFilter_t f = { 3, NULL, NULL, NULL, NULL };
         expect_init("null_buffer", &f, -1);
     }
 
     /* numNodes == 0 (even and <= 1) */
     {
-        sMedianFilter_t f = { 0, nodes, NULL, NULL, NULL };
+        MedianFilter_t f = { 0, nodes, NULL, NULL, NULL };
         expect_init("numNodes_0", &f, -1);
     }
 
     /* numNodes == 1 (odd but not > 1) */
     {
-        sMedianFilter_t f = { 1, nodes, NULL, NULL, NULL };
+        MedianFilter_t f = { 1, nodes, NULL, NULL, NULL };
         expect_init("numNodes_1", &f, -1);
     }
 
     /* numNodes == 2 (even) */
     {
-        sMedianFilter_t f = { 2, nodes, NULL, NULL, NULL };
+        MedianFilter_t f = { 2, nodes, NULL, NULL, NULL };
         expect_init("numNodes_2_even", &f, -1);
     }
 
     /* numNodes == 4 (even) */
     {
-        sMedianFilter_t f = { 4, nodes, NULL, NULL, NULL };
+        MedianFilter_t f = { 4, nodes, NULL, NULL, NULL };
         expect_init("numNodes_4_even", &f, -1);
     }
 
@@ -65,7 +85,7 @@ int main(void)
 
     /* Valid odd windows > 1 */
     {
-        sMedianFilter_t f = { 3, nodes, NULL, NULL, NULL };
+        MedianFilter_t f = { 3, nodes, NULL, NULL, NULL };
         expect_init("numNodes_3_valid", &f, 0);
 
         TEST_BEGIN("valid_heads_wired");
@@ -76,7 +96,7 @@ int main(void)
             TEST_FAIL("heads not initialized as expected");
     }
     {
-        sMedianFilter_t f = { 7, nodes, NULL, NULL, NULL };
+        MedianFilter_t f = { 7, nodes, NULL, NULL, NULL };
         expect_init("numNodes_7_valid", &f, 0);
     }
 
