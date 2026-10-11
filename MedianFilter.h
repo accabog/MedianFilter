@@ -35,6 +35,27 @@ extern "C" {
 #  define MF_RESTRICT
 #endif
 
+/*
+ * MEDIANFILTER_SMALL_MAX: windows of up to this many nodes compute the median
+ * from the buffer values with a branch-free selection network instead of the
+ * sorted value chain.  0 = never, 3 (default) = windows of 3, 5 = windows of 3
+ * and 5.  The network for 5 removes the chain's mispredicted branches: it pays
+ * off on out-of-order cores (x86-64, AArch64) but executes more instructions on
+ * Cortex-M and on RISC-V without Zbb.  The window check costs larger windows a
+ * few instructions per sample (2-5 on Cortex-M) and the window-3 network adds
+ * about 60-80 bytes of code on Cortex-M; 0 removes both.
+ * Define it for the whole build: MedianFilter.c and every translation unit that
+ * inserts into the same filter through MEDIANFILTER_INLINE_API must see the same
+ * value, because only the chain path maintains the value chain.  (The C++
+ * template always uses the network for windows of 3 and ignores this macro.)
+ */
+#ifndef MEDIANFILTER_SMALL_MAX
+#  define MEDIANFILTER_SMALL_MAX 3
+#endif
+#if (MEDIANFILTER_SMALL_MAX != 0) && (MEDIANFILTER_SMALL_MAX != 3) && (MEDIANFILTER_SMALL_MAX != 5)
+#  error "MEDIANFILTER_SMALL_MAX must be 0, 3 or 5"
+#endif
+
 typedef struct MedianFilterNode
 {
     int value;                            //sample value
@@ -46,9 +67,9 @@ typedef struct
 {
     unsigned int numNodes;                //window length: odd, > 1, immutable after Init
     MedianFilterNode_t *medianBuffer;     //caller-owned buffer of at least numNodes nodes
-    MedianFilterNode_t *ageHead;          //pointer to oldest value
-    MedianFilterNode_t *valueHead;        //pointer to smallest value
-    MedianFilterNode_t *medianHead;       //pointer to median value
+    MedianFilterNode_t *ageHead;          //internal: oldest node (replaced by the next Insert)
+    MedianFilterNode_t *valueHead;        //internal: smallest node of the value chain
+    MedianFilterNode_t *medianHead;       //internal: median node of the value chain (see Init notes)
 }MedianFilter_t;
 
 /*
@@ -77,91 +98,205 @@ typedef MedianFilter_t     sMedianFilter_t;
  *  - Filter state stores absolute pointers into `medianBuffer`, so the struct
  *    and buffer are NOT memcpy-relocatable or serializable — re-Init after
  *    moving them in memory.
+ *  - Read the median from Insert's return value.  ageHead, valueHead,
+ *    medianHead and the node links are internal: equal values are chained
+ *    oldest first, and windows served by a selection network (numNodes <=
+ *    MEDIANFILTER_SMALL_MAX) leave valueHead, medianHead and the links as Init
+ *    set them.  The state is specific to this version and configuration: call
+ *    Init again when a filter outlives a library update (e.g. retained RAM
+ *    across a firmware update).
  */
 int MEDIANFILTER_Init(MedianFilter_t *medianFilter);
 
 #ifdef MEDIANFILTER_INLINE_API
 /*
- * Inline Insert — opt-in for tight-loop callers.
+ * Inline Insert — opt-in for tight-loop and interrupt callers.
  * Define MEDIANFILTER_INLINE_API before including this header to enable.
- * Eliminates function-call overhead (~5-8% faster for small windows).
+ *
+ * `static inline` is only a hint: clang, and gcc at -Os, keep a function of this
+ * size out of line once a translation unit has two call sites.  Define
+ * MEDIANFILTER_FORCE_INLINE as well to force it inline at every call site
+ * (always_inline / __forceinline): about 8 fewer instructions per sample than a
+ * call on x86-64 (gcc -O2), and one copy of Insert per call site (about 0.2 KB
+ * on Cortex-M at -Os, 0.3 KB at -O2, 0.3-0.45 KB on x86-64).
+ * MEDIANFILTER_INLINE_SPEC replaces the specifier altogether; it must declare a
+ * static inline function.
  */
-#include <stdint.h>
+#include <stdint.h>     /* not used by Insert any more; kept for code that relies on it */
 
-#define MEDIANFILTER_NODE_GT_(a, b)  ((a)->value > (b)->value || \
-                                       ((a)->value == (b)->value && (uintptr_t)(a) > (uintptr_t)(b)))
-#define MEDIANFILTER_SAMPLE_LT_(val, nptr, b)  ((val) < (b)->value || \
-                                                  ((val) == (b)->value && (uintptr_t)(nptr) < (uintptr_t)(b)))
-#define MEDIANFILTER_SAMPLE_GE_(val, nptr, b)  (!MEDIANFILTER_SAMPLE_LT_(val, nptr, b))
+#if defined(MEDIANFILTER_INLINE_SPEC)
+#  define MEDIANFILTER_INLINE_ MEDIANFILTER_INLINE_SPEC
+#elif defined(MEDIANFILTER_FORCE_INLINE) && (defined(__GNUC__) || defined(__clang__))  /* before _MSC_VER: clang targeting MSVC defines both */
+#  define MEDIANFILTER_INLINE_ static inline __attribute__((always_inline))
+#elif defined(MEDIANFILTER_FORCE_INLINE) && defined(_MSC_VER)
+#  define MEDIANFILTER_INLINE_ static __forceinline
+#else
+#  define MEDIANFILTER_INLINE_ static inline
+#endif
 
-static inline int MEDIANFILTER_Insert(MedianFilter_t *MF_RESTRICT medianFilter, int sample)
+/* small windows: selection networks over the buffer values (see MEDIANFILTER_SMALL_MAX) */
+#if MEDIANFILTER_SMALL_MAX >= 3
+MEDIANFILTER_INLINE_ int MEDIANFILTER_Insert3_(MedianFilter_t *MF_RESTRICT medianFilter, int sample)
 {
-    MedianFilterNode_t *newNode, *it;
+    MedianFilterNode_t *buf = medianFilter->medianBuffer;
+    MedianFilterNode_t *age = medianFilter->ageHead;
 
-    MedianFilterNode_t *ageHead    = medianFilter->ageHead;
-    MedianFilterNode_t *valueHead  = medianFilter->valueHead;
-    MedianFilterNode_t *medianHead = medianFilter->medianHead;
-    const unsigned int half        = medianFilter->numNodes >> 1;
+    age->value = sample;
+    age++;
+    medianFilter->ageHead = (age == buf + 3) ? buf : age;
 
-    if(ageHead == valueHead)
+    int a = buf[0].value, b = buf[1].value, c = buf[2].value;
+    int lo = (a < b) ? a : b;
+    int hi = (a > b) ? a : b;
+    hi = (hi < c) ? hi : c;
+    return (lo > hi) ? lo : hi;
+}
+#endif
+
+#if MEDIANFILTER_SMALL_MAX >= 5
+MEDIANFILTER_INLINE_ int MEDIANFILTER_Insert5_(MedianFilter_t *MF_RESTRICT medianFilter, int sample)
+{
+    MedianFilterNode_t *buf = medianFilter->medianBuffer;
+    MedianFilterNode_t *age = medianFilter->ageHead;
+
+    age->value = sample;
+    age++;
+    medianFilter->ageHead = (age == buf + 5) ? buf : age;
+
+    int v0 = buf[0].value, v1 = buf[1].value, v2 = buf[2].value, v3 = buf[3].value, v4 = buf[4].value, t;
+    t = (v0 < v1) ? v0 : v1;  v1 = (v0 > v1) ? v0 : v1;  v0 = t;
+    t = (v3 < v4) ? v3 : v4;  v4 = (v3 > v4) ? v3 : v4;  v3 = t;
+    v3 = (v0 > v3) ? v0 : v3;
+    v1 = (v1 < v4) ? v1 : v4;
+    t = (v1 < v2) ? v1 : v2;  v2 = (v1 > v2) ? v1 : v2;  v1 = t;
+    v2 = (v2 < v3) ? v2 : v3;
+    return (v1 > v2) ? v1 : v2;
+}
+#endif
+
+/* same algorithm as the out-of-line Insert in MedianFilter.c, which carries the comments */
+MEDIANFILTER_INLINE_ int MEDIANFILTER_Insert(MedianFilter_t *MF_RESTRICT medianFilter, int sample)
+{
+#if MEDIANFILTER_SMALL_MAX >= 5
+    if(medianFilter->numNodes <= 5u)
+    {
+        if(medianFilter->numNodes == 3u)
+        {
+            return MEDIANFILTER_Insert3_(medianFilter, sample);
+        }
+        if(medianFilter->numNodes == 5u)
+        {
+            return MEDIANFILTER_Insert5_(medianFilter, sample);
+        }
+    }
+#elif MEDIANFILTER_SMALL_MAX >= 3
+    if(medianFilter->numNodes == 3u)
+    {
+        return MEDIANFILTER_Insert3_(medianFilter, sample);
+    }
+#endif
+
+    MedianFilterNode_t *newNode   = medianFilter->ageHead;
+    MedianFilterNode_t *valueHead = medianFilter->valueHead;
+    MedianFilterNode_t *median    = medianFilter->medianHead;
+    MedianFilterNode_t *lo, *hi;
+    int result;
+
+    if(newNode == valueHead)
+    {
         valueHead = valueHead->nextValue;
+    }
 
-    if(ageHead == medianHead || MEDIANFILTER_NODE_GT_(ageHead, medianHead))
-        medianHead = medianHead->prevValue;
-
-    newNode = ageHead;
-    newNode->value = sample;
+    if((newNode == median) || (newNode->value > median->value))
+    {
+        median = median->prevValue;
+    }
 
     MedianFilterNode_t *oldNext = newNode->nextValue;
     MedianFilterNode_t *oldPrev = newNode->prevValue;
     oldNext->prevValue = oldPrev;
     oldPrev->nextValue = oldNext;
+    newNode->value = sample;
 
     MedianFilterNode_t *nextAge = newNode + 1;
     if(nextAge == medianFilter->medianBuffer + medianFilter->numNodes)
+    {
         nextAge = medianFilter->medianBuffer;
+    }
     medianFilter->ageHead = nextAge;
 
-    if(MEDIANFILTER_SAMPLE_LT_(sample, newNode, medianHead))
+    if(sample < median->value)
     {
-        it = medianHead->prevValue;
-        while(it != valueHead && MEDIANFILTER_SAMPLE_LT_(sample, newNode, it))
-            it = it->prevValue;
-
-        if(it != valueHead || MEDIANFILTER_SAMPLE_GE_(sample, newNode, it))
-            it = it->nextValue;
-        else
+        if(sample < valueHead->value)
+        {
+            hi = valueHead;
+            lo = valueHead->prevValue;
             valueHead = newNode;
+        }
+        else
+        {
+            lo = median;
+            if(sample == valueHead->value)
+            {
+                const MedianFilterNode_t *const prevNode = (newNode == medianFilter->medianBuffer) ?
+                                                           (medianFilter->medianBuffer + (medianFilter->numNodes - 1u)) : (newNode - 1);
+                if(prevNode->value == sample)
+                {
+                    lo = prevNode->nextValue;
+                }
+            }
+            do
+            {
+                lo = lo->prevValue;
+            } while(sample < lo->value);
+            hi = lo->nextValue;
+        }
+        result = median->value;
     }
     else
     {
-        it = medianHead->nextValue;
-        unsigned int remaining = half;
-        while(remaining && MEDIANFILTER_SAMPLE_GE_(sample, newNode, it))
+        MedianFilterNode_t *q       = median->nextValue;
+        MedianFilterNode_t *maxNode = valueHead->prevValue;
+        if(sample >= maxNode->value)
         {
-            it = it->nextValue;
-            remaining--;
+            lo = maxNode;
+            hi = valueHead;
+            median = q;
         }
+        else
+        {
+            hi = median;
+            if(sample == median->value)
+            {
+                MedianFilterNode_t *const prevNode = (newNode == medianFilter->medianBuffer) ?
+                                                     (medianFilter->medianBuffer + (medianFilter->numNodes - 1u)) : (newNode - 1);
+                if(prevNode->value == sample)
+                {
+                    hi = prevNode;
+                }
+            }
+            do
+            {
+                hi = hi->nextValue;
+            } while(sample >= hi->value);
+            lo = hi->prevValue;
+            median = (hi == q) ? newNode : q;
+        }
+        result = median->value;
     }
 
-    MedianFilterNode_t *insertPrev = it->prevValue;
-    insertPrev->nextValue = newNode;
-    newNode->prevValue    = insertPrev;
-    it->prevValue         = newNode;
-    newNode->nextValue    = it;
-
-    if(MEDIANFILTER_SAMPLE_GE_(sample, newNode, medianHead))
-        medianHead = medianHead->nextValue;
+    lo->nextValue      = newNode;
+    newNode->prevValue = lo;
+    newNode->nextValue = hi;
+    hi->prevValue      = newNode;
 
     medianFilter->valueHead  = valueHead;
-    medianFilter->medianHead = medianHead;
+    medianFilter->medianHead = median;
 
-    return medianHead->value;
+    return result;
 }
 
-#undef MEDIANFILTER_NODE_GT_
-#undef MEDIANFILTER_SAMPLE_LT_
-#undef MEDIANFILTER_SAMPLE_GE_
+#undef MEDIANFILTER_INLINE_
 
 #else
 int MEDIANFILTER_Insert(MedianFilter_t *MF_RESTRICT medianFilter, int sample);
