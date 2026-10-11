@@ -17,20 +17,31 @@ Requires CMake 3.14+ and internet access (first build fetches dependencies).
 
 | Name | Type | Source | Complexity |
 |------|------|--------|------------|
-| **MedianFilter (C)** | int | This repo | O(n/2) avg |
-| **MedianFilter (C++)** | int | This repo | O(n/2) avg |
-| **MedianFilter (C++ float)** | float | This repo | O(n/2) avg |
+| **MedianFilter (C)** | int | This repo | O(n), fewer than n/2 list steps |
+| **MedianFilter (C++)** | int | This repo | O(n), fewer than n/2 list steps |
+| **MedianFilter (C++ float)** | float | This repo | O(n), fewer than n/2 list steps |
 | Naive sort | int | Baseline | O(n log n) |
-| Insertion-sort ring | int | Baseline | O(n) worst |
+| Insertion-sort ring | int | Baseline | O(n) |
 | std::nth_element | int | Baseline | O(n) avg |
 | [vpetrigo/median-filter](https://github.com/vpetrigo/median-filter) | int32_t | Third-party | O(n) |
 | [takingBytes/MovingMedianFilter](https://github.com/takingBytes/MovingMedianFilter) | float | Third-party | O(n log n) |
 
 Note: takingBytes only supports `float`, so we compare it against our C++ float template.
 
+## Instruction Counts
+
+The table in the [main README](../README.md#performance) counts every instruction of a whole run under [Callgrind](https://valgrind.org/docs/manual/cl-manual.html), divides by the 10,000 inserts, and averages seeds 42-46:
+
+```bash
+gcc -O2 -DMEDIANFILTER_INLINE_API -I.. -o cg_c callgrind_bench.c ../MedianFilter.c
+valgrind --tool=callgrind --callgrind-out-file=/dev/null ./cg_c 101 42    # window 101, seed 42
+```
+
+`callgrind_bench_cpp.cpp` (`<window> <seed>`), `callgrind_bench_competitors.cpp` (`<naive|insertion|nth> <window> <seed>`) and `callgrind_bench_vpetrigo.c` (`<window> <seed>`, built with `median_filter.c` from [vpetrigo/median-filter](https://github.com/vpetrigo/median-filter)) work the same way.
+
 ## Sample Output
 
-Machine: 16-core x86-64, GCC, `-O2`, Release build.
+Machine: 16-core x86-64, GCC, CMake `Release` build (which compiles with `-O3`). This sample is from an earlier version of the library; the current Insert is faster (see the instruction counts in the [main README](../README.md#performance)).
 
 ```
 -----------------------------------------------------------------------------------
