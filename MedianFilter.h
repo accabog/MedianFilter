@@ -18,13 +18,21 @@ extern "C" {
  * `restrict` is a C99 keyword and is not part of standard C++.  `extern "C"`
  * changes linkage only, not grammar, so an unguarded `restrict` would make this
  * header fail to compile in a C++ translation unit (defeating the interop
- * guards).  Expand it to `restrict` only where the compiler actually supports
- * it, and to nothing under C++ or pre-C99 C.
+ * guards).  Use `restrict` in C99 and later, the `__restrict` extension in C++
+ * on gcc and clang, and nothing elsewhere (MSVC would make `__restrict` part of
+ * Insert's function type in C++).  C90 does not define __STDC_VERSION__, so test
+ * for C99 positively.
  */
-#if defined(__cplusplus) || (defined(__STDC_VERSION__) && __STDC_VERSION__ < 199901L)
-#  define MF_RESTRICT
-#else
+#if defined(__cplusplus)
+#  if defined(__GNUC__) || defined(__clang__)
+#    define MF_RESTRICT __restrict
+#  else
+#    define MF_RESTRICT
+#  endif
+#elif defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L)
 #  define MF_RESTRICT restrict
+#else
+#  define MF_RESTRICT
 #endif
 
 typedef struct MedianFilterNode
