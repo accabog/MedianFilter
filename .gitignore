@@ -10,6 +10,12 @@ build_win/
 stress_test
 circular_test
 test_cpp
+init_test
+/stress_test_*
+/circular_test_*
+/exhaustive_test
+/exhaustive_test_*
+/test_cpp_*
 
 # Coverage
 *.gcno
