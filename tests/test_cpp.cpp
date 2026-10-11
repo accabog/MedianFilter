@@ -13,6 +13,7 @@
 #include <cstring>
 #include <algorithm>
 #include <climits>
+#include <limits>
 
 /* Brute-force reference median for any arithmetic type */
 template<typename T>
@@ -67,6 +68,73 @@ static void run_test(const char *name, const T *samples, int num_samples)
         TEST_FAIL("N=%u, %d sample mismatches out of %d", N, fails, num_samples);
     else
         TEST_PASS();
+}
+
+/*
+ * Every sequence of `length` samples drawn from {-1, 0, 1} (below, equal to and
+ * above the warmup zeros), checked after every insert: windows full of ties at
+ * three levels.  (The exhaustive state test of the C API covers every weak
+ * order; this covers the template's own code paths on dense ties.)
+ */
+template<typename T, unsigned int N>
+static void run_all_sequences(const char *name, int length)
+{
+    long long total = 1;
+    for (int i = 0; i < length; i++)
+        total *= 3;
+
+    long long bad = 0;
+    for (long long code = 0; code < total; code++) {
+        MedianFilter<T, N> filter;
+        T window[N];
+        for (unsigned int i = 0; i < N; i++)
+            window[i] = T(0);
+
+        long long digits = code;
+        for (int i = 0; i < length; i++) {
+            T sample = T((int)(digits % 3) - 1);
+            digits /= 3;
+            window[(unsigned int)i % N] = sample;        /* slot i % N holds the oldest sample */
+            if (filter.Insert(sample) != reference_median(window, (int)N)) {
+                if (bad == 0)
+                    printf("         N=%u sequence #%lld, insert #%d: got != expected\n", N, code, i);
+                bad++;
+                break;
+            }
+        }
+    }
+
+    TEST_BEGIN(name);
+    if (bad)
+        TEST_FAIL("N=%u, %lld of %lld sequences wrong", N, bad, total);
+    else
+        TEST_PASS();
+}
+
+/*
+ * NaN is unsupported and the medians are then unspecified, but Insert must
+ * still return: each walk stops at the minimum or maximum node because the
+ * guard before it is the walk's own loop test.  Feeds a mix of NaN, infinities,
+ * signed zeros and small values and only checks that every Insert returns (the
+ * sanitizer build also checks memory safety).
+ */
+template<typename T, unsigned int N>
+static void run_nan_survival(const char *name)
+{
+    const T specials[8] = { std::numeric_limits<T>::quiet_NaN(), std::numeric_limits<T>::infinity(),
+                            -std::numeric_limits<T>::infinity(), T(0), -T(0), T(1), T(-1), T(2) };
+    MedianFilter<T, N> filter;
+    unsigned int x = 12345u;
+    volatile T sink = T(0);
+
+    for (int i = 0; i < 20000; i++) {
+        x = x * 1103515245u + 12345u;
+        sink = filter.Insert(specials[(x >> 16) % 8u]);
+    }
+    (void)sink;
+
+    TEST_BEGIN(name);
+    TEST_PASS();
 }
 
 /* Generate random int samples in [lo, hi] */
@@ -142,6 +210,23 @@ int main()
     for (int i = 0; i < 5000; i++)
         double_samples[i] = (double)(std::rand() % 20000 - 10000) / 100.0;
     run_test<double, 7>("random_double", double_samples, 5000);
+
+    /* --- every short sequence over {-1, 0, 1} --- */
+    TEST_SECTION("all sequences of 10-12 samples from {-1, 0, 1}");
+    run_all_sequences<int, 3>("all_sequences_int_3", 10);
+    run_all_sequences<int, 5>("all_sequences_int_5", 11);
+    run_all_sequences<int, 7>("all_sequences_int_7", 12);
+    run_all_sequences<float, 3>("all_sequences_float_3", 10);
+    run_all_sequences<float, 5>("all_sequences_float_5", 11);
+    run_all_sequences<float, 7>("all_sequences_float_7", 12);
+
+    /* --- NaN and infinities must not hang Insert --- */
+    TEST_SECTION("NaN, infinities and signed zeros: every Insert returns");
+    run_nan_survival<float, 3>("nan_survival_float_3");
+    run_nan_survival<float, 7>("nan_survival_float_7");
+    run_nan_survival<float, 101>("nan_survival_float_101");
+    run_nan_survival<double, 5>("nan_survival_double_5");
+    run_nan_survival<double, 31>("nan_survival_double_31");
 
     TEST_SUITE_END();
 }

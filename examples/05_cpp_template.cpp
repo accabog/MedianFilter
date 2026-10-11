@@ -6,7 +6,8 @@
  *
  * Demonstrates:
  *   - MedianFilter<float, N>  — floating-point sensor data
- *   - MedianFilter<int16_t, N> — memory-efficient 16-bit ADC values
+ *   - MedianFilter<int16_t, N> — 16-bit ADC values (a node also holds two
+ *     pointers, so it takes as much RAM as a node of an int filter)
  *   - MedianFilter<double, N> — high-precision scientific data
  *   - Compile-time enforcement of odd window size and arithmetic type
  */
@@ -37,7 +38,7 @@ static void demo_float(void)
     printf("\n");
 }
 
-/* ── int16_t filter: memory-efficient 12-bit ADC ───────────────── */
+/* ── int16_t filter: 12-bit ADC ────────────────────────────────── */
 
 static void demo_int16(void)
 {

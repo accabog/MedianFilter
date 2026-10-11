@@ -31,6 +31,7 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.compiler }} / ${{ matrix.std }} / ${{ matrix.lang }}
+    timeout-minutes: 20
 
     env:
       COMPILER: ${{ matrix.compiler }}
@@ -63,9 +64,26 @@ jobs:
             ./circular_test
             ./init_test
             ./stress_test_inline
+            # Every reachable filter state for windows of 3, 5 and 7, in each configuration.
+            for cfg in "" -DMEDIANFILTER_INLINE_API "-DMEDIANFILTER_INLINE_API -DMEDIANFILTER_FORCE_INLINE" -DMEDIANFILTER_SMALL_MAX=0 -DMEDIANFILTER_SMALL_MAX=5 -DMEDIANFILTER_SEARCH_FROM_PREVIOUS "-DMEDIANFILTER_INLINE_API -DMEDIANFILTER_FORCE_INLINE -DMEDIANFILTER_SMALL_MAX=5 -DMEDIANFILTER_SEARCH_FROM_PREVIOUS"; do
+              $CC $FLAGS $cfg -o exhaustive_test tests/exhaustive_test.c MedianFilter.c
+              ./exhaustive_test
+            done
+            for cfg in -DMEDIANFILTER_SMALL_MAX=0 -DMEDIANFILTER_SMALL_MAX=5 -DMEDIANFILTER_SEARCH_FROM_PREVIOUS "-DMEDIANFILTER_INLINE_API -DMEDIANFILTER_FORCE_INLINE -DMEDIANFILTER_SMALL_MAX=5 -DMEDIANFILTER_SEARCH_FROM_PREVIOUS"; do
+              $CC $FLAGS $cfg -o stress_test_cfg tests/stress_test.c MedianFilter.c
+              ./stress_test_cfg
+            done
+            $CC $FLAGS -DMEDIANFILTER_SMALL_MAX=0 -o circular_test_small0 tests/circular_test.c MedianFilter.c
+            ./circular_test_small0
+            # MedianFilter.h must stay usable from C90 code with GNU extensions.
+            $CC -std=gnu89 -Wall -Wextra -Werror -I. -c -o gnu89_header_test.o tests/gnu89_header_test.c
           else
             $CXX $FLAGS -o test_cpp tests/test_cpp.cpp
             ./test_cpp
+            for cfg in -DMEDIANFILTER_FORCE_INLINE -DMEDIANFILTER_SEARCH_FROM_PREVIOUS "-DMEDIANFILTER_SEARCH_FROM_PREVIOUS -DMEDIANFILTER_SEARCH_FROM_PREVIOUS_MIN_N=21"; do
+              $CXX $FLAGS $cfg -o test_cpp_cfg tests/test_cpp.cpp
+              ./test_cpp_cfg
+            done
           fi
 
       - name: Build and test (MSVC)
@@ -84,9 +102,21 @@ jobs:
             circular_test.exe || exit /b 1
             init_test.exe || exit /b 1
             stress_test_inline.exe || exit /b 1
+            for %%c in ("" "/DMEDIANFILTER_INLINE_API" "/DMEDIANFILTER_INLINE_API /DMEDIANFILTER_FORCE_INLINE" "/DMEDIANFILTER_SMALL_MAX=0" "/DMEDIANFILTER_SMALL_MAX=5" "/DMEDIANFILTER_SEARCH_FROM_PREVIOUS" "/DMEDIANFILTER_INLINE_API /DMEDIANFILTER_FORCE_INLINE /DMEDIANFILTER_SMALL_MAX=5 /DMEDIANFILTER_SEARCH_FROM_PREVIOUS") do (
+              cl /W4 /WX /O2 /I. %%~c /Fe:exhaustive_test.exe tests\exhaustive_test.c MedianFilter.c || exit /b 1
+              exhaustive_test.exe || exit /b 1
+            )
+            for %%c in ("/DMEDIANFILTER_SMALL_MAX=0" "/DMEDIANFILTER_SMALL_MAX=5" "/DMEDIANFILTER_SEARCH_FROM_PREVIOUS" "/DMEDIANFILTER_INLINE_API /DMEDIANFILTER_FORCE_INLINE /DMEDIANFILTER_SMALL_MAX=5 /DMEDIANFILTER_SEARCH_FROM_PREVIOUS") do (
+              cl /W4 /WX /O2 /I. %%~c /Fe:stress_test_cfg.exe tests\stress_test.c MedianFilter.c || exit /b 1
+              stress_test_cfg.exe || exit /b 1
+            )
           ) else (
             cl /W4 /WX /O2 /EHsc /I. /Fe:test_cpp.exe tests\test_cpp.cpp || exit /b 1
             test_cpp.exe || exit /b 1
+            for %%c in ("/DMEDIANFILTER_FORCE_INLINE" "/DMEDIANFILTER_SEARCH_FROM_PREVIOUS" "/DMEDIANFILTER_SEARCH_FROM_PREVIOUS /DMEDIANFILTER_SEARCH_FROM_PREVIOUS_MIN_N=21") do (
+              cl /W4 /WX /O2 /EHsc /I. %%~c /Fe:test_cpp_cfg.exe tests\test_cpp.cpp || exit /b 1
+              test_cpp_cfg.exe || exit /b 1
+            )
           )
 
   sanitizers:
@@ -97,9 +127,12 @@ jobs:
         compiler: [gcc, clang]
     runs-on: ubuntu-latest
     name: sanitizers / ${{ matrix.compiler }}
+    timeout-minutes: 30
 
     env:
       COMPILER: ${{ matrix.compiler }}
+      # make any UBSan report fail the job (it only prints a warning by default)
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
 
     steps:
       - uses: actions/checkout@v4
@@ -119,12 +152,22 @@ jobs:
           $CC  $SAN_FLAGS -std=c11   -o init_test     tests/init_test.c MedianFilter.c
           $CC  $SAN_FLAGS -std=c11 -DMEDIANFILTER_INLINE_API -o stress_test_inline tests/stress_test.c MedianFilter.c
           $CXX $SAN_FLAGS -std=c++17 -o test_cpp      tests/test_cpp.cpp
+          $CC  $SAN_FLAGS -std=c11   -o exhaustive_test tests/exhaustive_test.c MedianFilter.c
+          $CC  $SAN_FLAGS -std=c11 -DMEDIANFILTER_SMALL_MAX=0 -o exhaustive_test_small0 tests/exhaustive_test.c MedianFilter.c
+          $CC  $SAN_FLAGS -std=c11 -DMEDIANFILTER_SEARCH_FROM_PREVIOUS -o exhaustive_test_search tests/exhaustive_test.c MedianFilter.c
+          $CC  $SAN_FLAGS -std=c11 -DMEDIANFILTER_INLINE_API -DMEDIANFILTER_FORCE_INLINE -DMEDIANFILTER_SMALL_MAX=5 -DMEDIANFILTER_SEARCH_FROM_PREVIOUS -o exhaustive_test_all tests/exhaustive_test.c MedianFilter.c
+          $CXX $SAN_FLAGS -std=c++17 -DMEDIANFILTER_SEARCH_FROM_PREVIOUS -o test_cpp_search tests/test_cpp.cpp
 
           ./stress_test
           ./circular_test
           ./init_test
           ./stress_test_inline
           ./test_cpp
+          ./exhaustive_test
+          ./exhaustive_test_small0
+          ./exhaustive_test_search
+          ./exhaustive_test_all
+          ./test_cpp_search
 
   cppcheck:
     needs: build-and-test
@@ -174,12 +217,15 @@ jobs:
           gcc $CFLAGS -o circular_test circular_test.o MedianFilter.o
           gcc $CFLAGS -c tests/init_test.c -o init_test.o
           gcc $CFLAGS -o init_test init_test.o MedianFilter.o
+          gcc $CFLAGS -c tests/exhaustive_test.c -o exhaustive_test.o
+          gcc $CFLAGS -o exhaustive_test exhaustive_test.o MedianFilter.o
 
       - name: Run tests for coverage
         run: |
           ./stress_test
           ./circular_test
           ./init_test
+          ./exhaustive_test
 
       - name: Generate coverage report
         run: gcov MedianFilter.gcda

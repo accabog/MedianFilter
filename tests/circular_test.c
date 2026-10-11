@@ -16,6 +16,10 @@
  *   - Negative values during warmup (all nodes start at 0).
  *   - INT_MIN as first insert — forces maximum downward walk.
  *   - Brute-force reference median for every single result.
+ *
+ * With the default MEDIANFILTER_SMALL_MAX=3, windows of 3 use the selection
+ * network rather than the value chain; `make test` and CI also build this test
+ * with MEDIANFILTER_SMALL_MAX=0, where the window-3 groups exercise the chain.
  */
 
 #include "MedianFilter.h"
@@ -54,6 +58,25 @@ static int reference_median(const int *history, int count, int window)
 }
 
 /* ---- test helpers ---- */
+
+/*
+ * Value chain invariants: starting at valueHead the chain is sorted, every
+ * prevValue mirrors nextValue, medianHead is the node at rank numNodes / 2,
+ * and numNodes steps lead back to valueHead (the chain is circular).
+ */
+static int chain_is_valid(const sMedianFilter_t *f)
+{
+    const sMedianNode_t *p = f->valueHead;
+
+    for (unsigned int i = 0; i < f->numNodes; i++) {
+        const sMedianNode_t *next = p->nextValue;
+        if (next->prevValue != p) return 0;
+        if (i + 1 < f->numNodes && next->value < p->value) return 0;
+        if (i == f->numNodes / 2 && p != f->medianHead) return 0;
+        p = next;
+    }
+    return p == f->valueHead;
+}
 
 static int run_sequence(const char *label, int window,
                         const int *samples, int num_samples)
@@ -270,87 +293,58 @@ int main(void)
 
     /* ------------------------------------------------------------------
      * GROUP 7: Chain integrity verification
+     *
+     * Window of 7: windows of up to MEDIANFILTER_SMALL_MAX nodes (3 by
+     * default, at most 5) use a selection network that does not maintain the
+     * value chain, so the chain is checked on a window the chain serves.
      * ------------------------------------------------------------------ */
     TEST_SECTION("Group 7: Chain integrity verification");
 
     {
-        sMedianNode_t nodes[3];
+        enum { W = 7 };
+        sMedianNode_t nodes[W];
         sMedianFilter_t filter;
-        filter.numNodes = 3;
+        filter.numNodes = W;
         filter.medianBuffer = nodes;
         MEDIANFILTER_Init(&filter);
 
         /* Verify initial chain structure */
         int init_ok = 1;
 
-        if (nodes[0].nextValue != &nodes[1]) init_ok = 0;
-        if (nodes[1].nextValue != &nodes[2]) init_ok = 0;
-        if (nodes[2].nextValue != &nodes[0]) init_ok = 0;
-        if (nodes[1].prevValue != &nodes[0]) init_ok = 0;
-        if (nodes[2].prevValue != &nodes[1]) init_ok = 0;
-        if (nodes[0].prevValue != &nodes[2]) init_ok = 0;
-
-        if (nodes[0].value != 0 || nodes[1].value != 0 || nodes[2].value != 0)
-            init_ok = 0;
-
+        for (int i = 0; i < W; i++) {
+            if (nodes[i].nextValue != &nodes[(i + 1) % W]) init_ok = 0;
+            if (nodes[(i + 1) % W].prevValue != &nodes[i]) init_ok = 0;
+            if (nodes[i].value != 0) init_ok = 0;
+        }
         if (filter.valueHead != &nodes[0]) init_ok = 0;
-        if (filter.medianHead != &nodes[1]) init_ok = 0;
+        if (filter.medianHead != &nodes[W / 2]) init_ok = 0;
         if (filter.ageHead != &nodes[0]) init_ok = 0;
 
         TEST_BEGIN("7a: init chain structure");
         if (init_ok) TEST_PASS();
         else         TEST_FAIL("chain pointers incorrect after Init");
 
-        /* Insert INT_MIN — median of {0, 0, INT_MIN} = 0 */
-        int result = MEDIANFILTER_Insert(&filter, INT_MIN);
-        TEST_BEGIN("7b: INT_MIN insert, median=0");
-        if (result == 0) TEST_PASS();
-        else             TEST_FAIL("got=%d expected=0", result);
+        /* Extreme values during warmup and after, checked after every insert */
+        int seq[] = { INT_MIN, INT_MIN, INT_MAX, 0, INT_MIN, INT_MAX, INT_MAX,
+                      0, 0, INT_MIN, INT_MAX, 0, 0, 0 };
+        int n = (int)(sizeof(seq) / sizeof(seq[0]));
+        int history[16];
+        int first_bad = -1, chain_bad = -1;
 
-        /* Verify value chain sorted and circular after insert */
-        {
-            int chain_ok = 1;
-            sMedianNode_t *p = filter.valueHead;
-            int prev_val = p->value;
-
-            for (unsigned int i = 1; i < filter.numNodes; i++) {
-                p = p->nextValue;
-                if (p->value < prev_val) chain_ok = 0;
-                prev_val = p->value;
-            }
-            if (p->nextValue != filter.valueHead) chain_ok = 0;
-
-            p = filter.valueHead->prevValue;
-            prev_val = p->value;
-            for (unsigned int i = 1; i < filter.numNodes; i++) {
-                p = p->prevValue;
-                if (p->value > prev_val) chain_ok = 0;
-                prev_val = p->value;
-            }
-            if (p != filter.valueHead) chain_ok = 0;
-
-            TEST_BEGIN("7c: chain integrity after INT_MIN insert");
-            if (chain_ok) TEST_PASS();
-            else          TEST_FAIL("value chain not sorted or not circular");
+        for (int i = 0; i < n; i++) {
+            history[i] = seq[i];
+            int got = MEDIANFILTER_Insert(&filter, seq[i]);
+            if (got != reference_median(history, i + 1, W) && first_bad < 0) first_bad = i;
+            if (!chain_is_valid(&filter) && chain_bad < 0) chain_bad = i;
         }
 
-        /* Insert second INT_MIN.  median of {0, INT_MIN, INT_MIN} = INT_MIN */
-        result = MEDIANFILTER_Insert(&filter, INT_MIN);
-        TEST_BEGIN("7d: 2nd INT_MIN insert, median=INT_MIN");
-        if (result == INT_MIN) TEST_PASS();
-        else                   TEST_FAIL("got=%d expected=%d", result, INT_MIN);
+        TEST_BEGIN("7b: extreme inserts, median after every insert");
+        if (first_bad < 0) TEST_PASS();
+        else               TEST_FAIL("wrong median at insert #%d", first_bad + 1);
 
-        /* Insert INT_MAX.  median of {INT_MIN, INT_MIN, INT_MAX} = INT_MIN */
-        result = MEDIANFILTER_Insert(&filter, INT_MAX);
-        TEST_BEGIN("7e: INT_MAX after 2xMIN, median=INT_MIN");
-        if (result == INT_MIN) TEST_PASS();
-        else                   TEST_FAIL("got=%d expected=%d", result, INT_MIN);
-
-        /* Insert 0.  median of {INT_MIN, INT_MAX, 0} = 0 */
-        result = MEDIANFILTER_Insert(&filter, 0);
-        TEST_BEGIN("7f: 0 after MIN,MIN,MAX, median=0");
-        if (result == 0) TEST_PASS();
-        else             TEST_FAIL("got=%d expected=%d", result, 0);
+        TEST_BEGIN("7c: chain sorted, circular and centred after every insert");
+        if (chain_bad < 0) TEST_PASS();
+        else               TEST_FAIL("value chain invalid after insert #%d", chain_bad + 1);
     }
 
     /* ------------------------------------------------------------------
