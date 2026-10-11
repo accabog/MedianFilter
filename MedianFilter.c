@@ -170,6 +170,12 @@ int MEDIANFILTER_Insert(MedianFilter_t *restrict medianFilter, int sample)
     }
     medianFilter->ageHead = nextAge;
 
+#ifdef MEDIANFILTER_SEARCH_FROM_PREVIOUS
+    //opt-in search start: the node written by the previous Insert (never the evicted node)
+    MedianFilterNode_t *const prev = (newNode == medianFilter->medianBuffer) ?
+                                     (medianFilter->medianBuffer + (medianFilter->numNodes - 1u)) : (newNode - 1);
+#endif
+
     /*
      * Find the insertion point.  The new node is the youngest, so it goes below
      * node b iff sample < b->value.  Neither walk needs a bounds check: the
@@ -188,6 +194,28 @@ int MEDIANFILTER_Insert(MedianFilter_t *restrict medianFilter, int sample)
         }
         else
         {
+#ifdef MEDIANFILTER_SEARCH_FROM_PREVIOUS
+            if(sample >= prev->value)
+            {   //the previous sample's node is at or below the new sample, so below the median:
+                //walk up from it; stops at the median at the latest
+                hi = prev;
+                do
+                {
+                    hi = hi->nextValue;
+                } while(sample >= hi->value);
+                lo = hi->prevValue;
+            }
+            else
+            {   //walk down from the previous sample's node if it is below the median, else from
+                //the median; stops at valueHead at the latest
+                lo = (prev->value < median->value) ? prev : median;
+                do
+                {
+                    lo = lo->prevValue;
+                } while(sample < lo->value);
+                hi = lo->nextValue;
+            }
+#else
             //walk down from the median; stops at valueHead at the latest
             lo = median;
             if(sample == valueHead->value)
@@ -207,6 +235,7 @@ int MEDIANFILTER_Insert(MedianFilter_t *restrict medianFilter, int sample)
                 lo = lo->prevValue;
             } while(sample < lo->value);
             hi = lo->nextValue;
+#endif
         }
         result = median->value;
     }
@@ -222,6 +251,31 @@ int MEDIANFILTER_Insert(MedianFilter_t *restrict medianFilter, int sample)
         }
         else
         {
+#ifdef MEDIANFILTER_SEARCH_FROM_PREVIOUS
+            if((sample > median->value) && (sample < prev->value))
+            {   //the previous sample's node is above the new sample, so above the median:
+                //walk down from it; stops at the median at the latest
+                lo = prev;
+                do
+                {
+                    lo = lo->prevValue;
+                } while(sample < lo->value);
+                hi = lo->nextValue;
+            }
+            else
+            {   //walk up from the previous sample's node if the sample is above the median value
+                //and that node is at or above the median (it then lies between the median and the
+                //insertion point), or if the node holds the sample's value (it is then the top of
+                //that equal-value run); otherwise from the median.  Starting above the insertion
+                //point would skip it.  Stops at the maximum at the latest
+                hi = (((sample > median->value) && (prev->value >= median->value)) || (prev->value == sample)) ? prev : median;
+                do
+                {
+                    hi = hi->nextValue;
+                } while(sample >= hi->value);
+                lo = hi->prevValue;
+            }
+#else
             //walk up from the median; stops at the maximum at the latest
             hi = median;
             if(sample == median->value)
@@ -240,6 +294,7 @@ int MEDIANFILTER_Insert(MedianFilter_t *restrict medianFilter, int sample)
                 hi = hi->nextValue;
             } while(sample >= hi->value);
             lo = hi->prevValue;
+#endif
             median = (hi == q) ? newNode : q;   //no hop: the new node is the median
         }
         result = median->value;

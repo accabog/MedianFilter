@@ -31,6 +31,18 @@
 #  define MEDIANFILTER_INSERT_INLINE_
 #endif
 
+/*
+ * Opt-in: define MEDIANFILTER_SEARCH_FROM_PREVIOUS to start the insertion walk at
+ * the previous sample's node when it lies on the same side of the median as the
+ * new sample (fewer hops for slowly varying signals in larger windows, see
+ * MedianFilter.h).  MEDIANFILTER_SEARCH_FROM_PREVIOUS_MIN_N limits it to windows
+ * of at least that many elements; the test is resolved at compile time.  Define
+ * both identically in every translation unit.
+ */
+#if defined(MEDIANFILTER_SEARCH_FROM_PREVIOUS) && !defined(MEDIANFILTER_SEARCH_FROM_PREVIOUS_MIN_N)
+#  define MEDIANFILTER_SEARCH_FROM_PREVIOUS_MIN_N 3
+#endif
+
 namespace medianfilter_detail
 {
 	//windows of 3 use a branch-free selection network instead of the value chain:
@@ -134,6 +146,10 @@ namespace medianfilter_detail
 	 * node with an equal value.  Values are compared with <, > and >= only, never
 	 * with ==, which keeps float instantiations clean under -Wfloat-equal.
 	 */
+#if defined(_MSC_VER) && defined(MEDIANFILTER_SEARCH_FROM_PREVIOUS)
+#pragma warning(push)
+#pragma warning(disable: 4127)      //conditional expression is constant: the compile-time window threshold
+#endif
 	template<typename type, unsigned int numElements>
 	MEDIANFILTER_INSERT_INLINE_ type ListCore<type, numElements>::Insert(type value)
 	{
@@ -173,6 +189,12 @@ namespace medianfilter_detail
 		}
 		m_ageHead = nextAge;
 
+#ifdef MEDIANFILTER_SEARCH_FROM_PREVIOUS
+		//opt-in search start: the node written by the previous Insert (never the evicted node)
+		constexpr bool fromPrevious = (numElements >= MEDIANFILTER_SEARCH_FROM_PREVIOUS_MIN_N);
+		sMedianNode_t *const prev = (newNode == m_medianBuffer) ? (m_medianBuffer + (numElements - 1)) : (newNode - 1);
+#endif
+
 		//find the insertion point: the new node goes below node b iff value < b->value.
 		//The new-minimum and new-maximum guards are the walks' loop tests at valueHead and
 		//at the maximum, so neither walk needs a bounds check (keep them identical).
@@ -186,24 +208,52 @@ namespace medianfilter_detail
 			}
 			else
 			{
-				//walk down from the median; stops at valueHead at the latest
-				lo = median;
-				if(!(value > valueHead->value))
-				{	//repeats the minimum: the new node goes on top of the run of minima.  The
-					//previous sample's node is the youngest in the window, so if it holds the
-					//minimum it is the top of that run: start one node above it instead of
-					//walking down to it (falling signal with repeated values)
-					const sMedianNode_t *const prevNode = (newNode == m_medianBuffer) ? (m_medianBuffer + (numElements - 1)) : (newNode - 1);
-					if(!(prevNode->value < value) && !(value < prevNode->value))
-					{
-						lo = prevNode->nextValue;
+#ifdef MEDIANFILTER_SEARCH_FROM_PREVIOUS
+				if(fromPrevious)
+				{
+					if(value >= prev->value)
+					{	//the previous sample's node is at or below the new value, so below the median:
+						//walk up from it; stops at the median at the latest
+						hi = prev;
+						do
+						{
+							hi = hi->nextValue;
+						} while(value >= hi->value);
+						lo = hi->prevValue;
+					}
+					else
+					{	//walk down from the previous sample's node if it is below the median, else
+						//from the median; stops at valueHead at the latest
+						lo = (prev->value < median->value) ? prev : median;
+						do
+						{
+							lo = lo->prevValue;
+						} while(value < lo->value);
+						hi = lo->nextValue;
 					}
 				}
-				do
+				else
+#endif
 				{
-					lo = lo->prevValue;
-				} while(value < lo->value);
-				hi = lo->nextValue;
+					//walk down from the median; stops at valueHead at the latest
+					lo = median;
+					if(!(value > valueHead->value))
+					{	//repeats the minimum: the new node goes on top of the run of minima.  The
+						//previous sample's node is the youngest in the window, so if it holds the
+						//minimum it is the top of that run: start one node above it instead of
+						//walking down to it (falling signal with repeated values)
+						const sMedianNode_t *const prevNode = (newNode == m_medianBuffer) ? (m_medianBuffer + (numElements - 1)) : (newNode - 1);
+						if(!(prevNode->value < value) && !(value < prevNode->value))
+						{
+							lo = prevNode->nextValue;
+						}
+					}
+					do
+					{
+						lo = lo->prevValue;
+					} while(value < lo->value);
+					hi = lo->nextValue;
+				}
 			}
 			result = median->value;
 		}
@@ -219,24 +269,57 @@ namespace medianfilter_detail
 			}
 			else
 			{
-				//walk up from the median; stops at the maximum at the latest
-				hi = median;
-				if(!(value > median->value))
-				{	//equal to the median: the new node goes on top of the median's equal-value run.
-					//The previous sample's node is the youngest in the window, so if it has the same
-					//value it is the top of that run: start there instead of crossing the run (flat
-					//level with upward spikes)
-					sMedianNode_t *const prevNode = (newNode == m_medianBuffer) ? (m_medianBuffer + (numElements - 1)) : (newNode - 1);
-					if(!(prevNode->value < value) && !(value < prevNode->value))
-					{
-						hi = prevNode;
+#ifdef MEDIANFILTER_SEARCH_FROM_PREVIOUS
+				if(fromPrevious)
+				{
+					if((value > median->value) && (value < prev->value))
+					{	//the previous sample's node is above the new value, so above the median:
+						//walk down from it; stops at the median at the latest
+						lo = prev;
+						do
+						{
+							lo = lo->prevValue;
+						} while(value < lo->value);
+						hi = lo->nextValue;
+					}
+					else
+					{	//walk up from the previous sample's node if the value is above the median value
+						//and that node is at or above the median (it then lies between the median and
+						//the insertion point), or if the value equals the median value and the previous
+						//sample's value (the node is then the top of that equal-value run); otherwise
+						//from the median.  Starting above the insertion point would skip it.  Stops at
+						//the maximum at the latest
+						hi = (((value > median->value) && (prev->value >= median->value)) ||
+						      (!(value > median->value) && !(prev->value < value) && !(value < prev->value))) ? prev : median;
+						do
+						{
+							hi = hi->nextValue;
+						} while(value >= hi->value);
+						lo = hi->prevValue;
 					}
 				}
-				do
+				else
+#endif
 				{
-					hi = hi->nextValue;
-				} while(value >= hi->value);
-				lo = hi->prevValue;
+					//walk up from the median; stops at the maximum at the latest
+					hi = median;
+					if(!(value > median->value))
+					{	//equal to the median: the new node goes on top of the median's equal-value run.
+						//The previous sample's node is the youngest in the window, so if it has the same
+						//value it is the top of that run: start there instead of crossing the run (flat
+						//level with upward spikes)
+						sMedianNode_t *const prevNode = (newNode == m_medianBuffer) ? (m_medianBuffer + (numElements - 1)) : (newNode - 1);
+						if(!(prevNode->value < value) && !(value < prevNode->value))
+						{
+							hi = prevNode;
+						}
+					}
+					do
+					{
+						hi = hi->nextValue;
+					} while(value >= hi->value);
+					lo = hi->prevValue;
+				}
 				median = (hi == q) ? newNode : q;   //no hop: the new node is the median
 			}
 			result = median->value;
@@ -253,6 +336,9 @@ namespace medianfilter_detail
 
 		return result;
 	}
+#if defined(_MSC_VER) && defined(MEDIANFILTER_SEARCH_FROM_PREVIOUS)
+#pragma warning(pop)
+#endif
 
 	//the implementation used by MedianFilter<type, numElements>
 	template <typename type, unsigned int numElements>
